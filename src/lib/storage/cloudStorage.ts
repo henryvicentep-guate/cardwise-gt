@@ -47,7 +47,12 @@ export async function signInToCloud(email: string, password: string) {
 export async function signUpToCloud(email: string, password: string) {
   if (!supabase) throw new Error('Supabase no esta configurado.');
 
-  const { data, error } = await supabase.auth.signUp({ email, password });
+  const emailRedirectTo = `${window.location.origin}/`;
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { emailRedirectTo }
+  });
   if (error) throw error;
   return data.session;
 }
