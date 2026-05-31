@@ -932,16 +932,35 @@ function CloudSyncPanel({
   const [authFormOpen, setAuthFormOpen] = useState(false);
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
+  const [authValidationMessage, setAuthValidationMessage] = useState('');
   const disabled = status === 'syncing';
+  const displayMessage = authValidationMessage || message;
+  const hasValidationError = Boolean(authValidationMessage);
 
   async function submitAuth(mode: 'sign-in' | 'sign-up') {
-    if (!authEmail.trim() || authPassword.length < 6) return;
+    const trimmedEmail = authEmail.trim();
+    setAuthValidationMessage('');
+
+    if (!trimmedEmail) {
+      setAuthValidationMessage('Ingresa tu correo.');
+      return;
+    }
+
+    if (!authPassword) {
+      setAuthValidationMessage('Ingresa tu contrasena.');
+      return;
+    }
+
+    if (mode === 'sign-up' && authPassword.length < 8) {
+      setAuthValidationMessage('Usa una contrasena de al menos 8 caracteres.');
+      return;
+    }
 
     try {
       if (mode === 'sign-in') {
-        await onSignIn(authEmail.trim(), authPassword);
+        await onSignIn(trimmedEmail, authPassword);
       } else {
-        await onSignUp(authEmail.trim(), authPassword);
+        await onSignUp(trimmedEmail, authPassword);
       }
 
       setAuthPassword('');
@@ -952,10 +971,16 @@ function CloudSyncPanel({
   }
 
   async function submitPasswordReset() {
-    if (!authEmail.trim()) return;
+    const trimmedEmail = authEmail.trim();
+    setAuthValidationMessage('');
+
+    if (!trimmedEmail) {
+      setAuthValidationMessage('Ingresa tu correo para recuperar la contrasena.');
+      return;
+    }
 
     try {
-      await onPasswordReset(authEmail.trim());
+      await onPasswordReset(trimmedEmail);
       setAuthPassword('');
     } catch {
       setAuthPassword('');
@@ -1004,7 +1029,9 @@ function CloudSyncPanel({
         )}
       </div>
 
-      {message ? <p className={`mt-2 ${status === 'error' ? 'text-red-200' : 'text-slate-300'}`}>{message}</p> : null}
+      {displayMessage ? (
+        <p className={`mt-2 ${status === 'error' || hasValidationError ? 'text-red-200' : 'text-slate-300'}`}>{displayMessage}</p>
+      ) : null}
 
       {authFormOpen && !email ? (
         <div className="mt-3 grid gap-2">
@@ -1018,7 +1045,7 @@ function CloudSyncPanel({
           />
           <input
             className="h-10 rounded-md border border-white/20 bg-white px-3 text-base text-slate-950 outline-none"
-            minLength={6}
+            minLength={8}
             placeholder="contrasena"
             type="password"
             value={authPassword}
