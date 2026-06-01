@@ -9,12 +9,14 @@ export type CreditCardAccount = {
   currencies: Currency[];
   primaryCurrency: Currency;
   creditLimits: CurrencyAmounts;
+  benefitsDescription?: string;
   annualInterestRate: number;
   cutDay: number;
   graceDays: number;
   colorHex: string;
   active: boolean;
   currentBalances: CurrencyAmounts;
+  paymentDueDate?: string;
 };
 
 export type UrgencyLevel = 'high' | 'medium' | 'low' | 'urgent';

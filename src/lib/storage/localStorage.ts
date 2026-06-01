@@ -42,7 +42,8 @@ function migrateCard(card: CreditCardAccount | LegacyCreditCardAccount): CreditC
       ...card,
       currencies: card.currencies.length > 0 ? card.currencies : [card.primaryCurrency],
       creditLimits: { GTQ: card.creditLimits.GTQ ?? 0, USD: card.creditLimits.USD ?? 0 },
-      currentBalances: { GTQ: card.currentBalances.GTQ ?? 0, USD: card.currentBalances.USD ?? 0 }
+      currentBalances: { GTQ: card.currentBalances.GTQ ?? 0, USD: card.currentBalances.USD ?? 0 },
+      paymentDueDate: card.paymentDueDate
     };
   }
 
@@ -58,6 +59,7 @@ function migrateCard(card: CreditCardAccount | LegacyCreditCardAccount): CreditC
       GTQ: currency === 'GTQ' ? card.creditLimit ?? 0 : 0,
       USD: currency === 'USD' ? card.creditLimit ?? 0 : 0
     },
+    benefitsDescription: card.benefitsDescription,
     annualInterestRate: card.annualInterestRate,
     cutDay: card.cutDay,
     graceDays: card.graceDays,
@@ -66,7 +68,8 @@ function migrateCard(card: CreditCardAccount | LegacyCreditCardAccount): CreditC
     currentBalances: {
       GTQ: currency === 'GTQ' ? card.currentBalance ?? 0 : 0,
       USD: currency === 'USD' ? card.currentBalance ?? 0 : 0
-    }
+    },
+    paymentDueDate: card.paymentDueDate
   };
 }
 
@@ -112,7 +115,9 @@ function mergeCards(cards: CreditCardAccount[]): { cards: CreditCardAccount[]; i
       currentBalances: {
         GTQ: existingCard.currentBalances.GTQ + card.currentBalances.GTQ,
         USD: existingCard.currentBalances.USD + card.currentBalances.USD
-      }
+      },
+      benefitsDescription: existingCard.benefitsDescription ?? card.benefitsDescription,
+      paymentDueDate: existingCard.paymentDueDate ?? card.paymentDueDate
     };
 
     cardByKey.set(key, nextCard);

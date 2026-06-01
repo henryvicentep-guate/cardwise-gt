@@ -9,6 +9,7 @@ export type BalanceSnapshot = {
   currency: Currency;
   previousBalance: number;
   newBalance: number;
+  paymentDueDate?: string;
   statementDate: string;
   source: BalanceSnapshotSource;
   notes?: string;

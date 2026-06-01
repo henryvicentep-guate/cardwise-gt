@@ -58,11 +58,13 @@ type CardFormState = {
   primaryCurrency: Currency;
   creditLimitGTQ: string;
   creditLimitUSD: string;
+  benefitsDescription: string;
   annualInterestRate: string;
   cutDay: string;
   graceDays: string;
   currentBalanceGTQ: string;
   currentBalanceUSD: string;
+  paymentDueDate: string;
   colorHex: string;
 };
 
@@ -90,6 +92,7 @@ type BalanceUpdateFormState = {
   cardId: string;
   currency: Currency;
   notes: string;
+  paymentDueDate: string;
   statementDate: string;
 };
 
@@ -111,6 +114,7 @@ type PayableFormState = {
 
 type PayableAgendaItem = {
   amount: number;
+  amountLabel?: string;
   currency: Currency;
   dueDate: Date;
   id: string;
@@ -145,11 +149,13 @@ const emptyForm: CardFormState = {
   primaryCurrency: 'GTQ',
   creditLimitGTQ: '',
   creditLimitUSD: '',
+  benefitsDescription: '',
   annualInterestRate: '48',
   cutDay: '25',
   graceDays: '15',
   currentBalanceGTQ: '0',
   currentBalanceUSD: '0',
+  paymentDueDate: getEstimatedPaymentDueDateInput('25', '15'),
   colorHex: '#0f766e'
 };
 
@@ -483,7 +489,8 @@ function App() {
         currentBalances: {
           ...card.currentBalances,
           [snapshot.currency]: snapshot.newBalance
-        }
+        },
+        paymentDueDate: snapshot.paymentDueDate ?? card.paymentDueDate
       };
     });
 
@@ -1162,8 +1169,16 @@ function PriorityCard({
             <h3 className="truncate text-base font-semibold">{card.alias}</h3>
           </div>
           <p className="mt-1 text-sm text-slate-500">
-            {card.bank} · {formatCardBalances(card)} pendiente
+            {card.bank} · Pagar antes del {formatShortDate(getCardPaymentDueDate(card))}
           </p>
+          <p className="mt-1 text-sm font-semibold text-slate-600">
+            {formatCardBalances(card)} pendiente
+          </p>
+          {card.benefitsDescription ? (
+            <p className="mt-2 line-clamp-2 rounded-md bg-teal-50 px-3 py-2 text-sm font-medium text-teal-900">
+              {card.benefitsDescription}
+            </p>
+          ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <UrgencyBadge level={card.urgencyLevel} />
@@ -1185,7 +1200,7 @@ function PriorityCard({
           <DatePill label="Ultimo corte" value={formatShortDate(card.lastCutDate)} />
           <DatePill label="Hace" value={formatElapsedDays(card.daysSinceLastCut)} />
           <DatePill label="Proximo corte" value={formatShortDate(card.nextCutDate)} />
-          <DatePill label="Pago" value={formatShortDate(card.nextPaymentDate)} />
+          <DatePill label="Pagar antes" value={formatShortDate(getCardPaymentDueDate(card))} />
         </div>
         <div className="text-right">
           <p className="text-3xl font-bold text-slate-950">{card.availableDays}</p>
@@ -1306,7 +1321,7 @@ function CardDetailPanel({
             </div>
 
             <p className="mt-2 text-sm text-slate-300">
-              Ultimo corte {formatShortDate(card.lastCutDate)} · pago estimado {formatShortDate(card.nextPaymentDate)}
+              Ultimo corte {formatShortDate(card.lastCutDate)} · pagar antes del {formatShortDate(getCardPaymentDueDate(card))}
             </p>
             <div className="mt-4 grid gap-2">
               {card.currencies.map((currency) => (
@@ -1336,7 +1351,7 @@ function CardDetailPanel({
               <SummaryTile label="Ultimo corte" value={formatShortDate(card.lastCutDate)} />
               <SummaryTile label="Fue hace" value={formatElapsedDays(card.daysSinceLastCut)} />
               <SummaryTile label="Proximo corte" value={formatShortDate(card.nextCutDate)} />
-              <SummaryTile label="Pago" value={formatShortDate(card.nextPaymentDate)} />
+              <SummaryTile label="Pagar antes" value={formatShortDate(getCardPaymentDueDate(card))} />
             </div>
           </section>
 
@@ -1676,7 +1691,7 @@ function CalendarView({ cards }: { cards: CardPriority[] }) {
               <DatePill label="Ultimo corte" value={formatShortDate(card.lastCutDate)} />
               <DatePill label="Hace" value={formatElapsedDays(card.daysSinceLastCut)} />
               <DatePill label="Proximo corte" value={formatShortDate(card.nextCutDate)} />
-              <DatePill label="Pago" value={formatShortDate(card.nextPaymentDate)} />
+              <DatePill label="Pagar antes" value={formatShortDate(getCardPaymentDueDate(card))} />
             </div>
           </article>
         ))}
@@ -1810,7 +1825,7 @@ function PayablesView({
                   <p className="truncate font-semibold text-slate-950">{item.title}</p>
                   <p className="text-sm text-slate-500">{formatShortDate(item.dueDate)}</p>
                 </div>
-                <p className="text-sm font-bold text-slate-900">{formatCurrency(item.amount, item.currency)}</p>
+                <p className="text-sm font-bold text-slate-900">{item.amountLabel ?? formatCurrency(item.amount, item.currency)}</p>
               </div>
             ))}
           </div>
@@ -1847,7 +1862,7 @@ function PayableAgendaItemCard({
           <p className="mt-1 text-sm text-slate-500">{item.subtitle}</p>
         </div>
         <div className="shrink-0 text-right">
-          <p className="font-bold text-slate-950">{formatCurrency(item.amount, item.currency)}</p>
+          <p className="font-bold text-slate-950">{item.amountLabel ?? formatCurrency(item.amount, item.currency)}</p>
           <p className="mt-1 text-xs font-semibold text-slate-500">{formatShortDate(item.dueDate)}</p>
         </div>
       </div>
@@ -2027,6 +2042,7 @@ function BalanceSnapshotItem({ snapshot }: { snapshot: BalanceSnapshot }) {
           </div>
           <p className="mt-2 text-sm text-slate-500">
             Estado {formatShortDate(parseDateInput(snapshot.statementDate))}
+            {snapshot.paymentDueDate ? ` · pagar antes del ${formatShortDate(parseDateInput(snapshot.paymentDueDate))}` : ''}
           </p>
           {snapshot.notes ? <p className="mt-2 text-sm text-slate-600">{snapshot.notes}</p> : null}
         </div>
@@ -2226,6 +2242,7 @@ function BalanceUpdateForm({
       cardId: initialCard?.id ?? '',
       currency: initialCard?.primaryCurrency ?? 'GTQ',
       notes: '',
+      paymentDueDate: initialCard ? getDateInputValue(getCardPaymentDueDate(initialCard)) : getEstimatedPaymentDueDateInput('25', '15'),
       statementDate: getDateInputValue(new Date())
     };
   });
@@ -2246,6 +2263,7 @@ function BalanceUpdateForm({
       currency: form.currency,
       previousBalance: getCardBalance(selectedCard, form.currency),
       newBalance: parseAmount(form.amount),
+      paymentDueDate: form.paymentDueDate,
       statementDate: form.statementDate,
       source: 'manual',
       notes: form.notes.trim() || undefined,
@@ -2279,7 +2297,8 @@ function BalanceUpdateForm({
                     ...current,
                     amount: nextCard ? String(getCardBalance(nextCard, nextCurrency)) : current.amount,
                     cardId: event.target.value,
-                    currency: nextCurrency
+                    currency: nextCurrency,
+                    paymentDueDate: nextCard ? getDateInputValue(getCardPaymentDueDate(nextCard)) : current.paymentDueDate
                   }));
                 }}
                 required
@@ -2307,6 +2326,8 @@ function BalanceUpdateForm({
               <TextField label="Nuevo saldo" type="number" value={form.amount} onChange={(value) => updateField('amount', value)} required />
               <TextField label="Fecha estado" type="date" value={form.statementDate} onChange={(value) => updateField('statementDate', value)} required />
             </div>
+
+            <TextField label="Fecha de pago" type="date" value={form.paymentDueDate} onChange={(value) => updateField('paymentDueDate', value)} required />
 
             <TextField label="Nota opcional" value={form.notes} onChange={(value) => updateField('notes', value)} />
 
@@ -2870,6 +2891,7 @@ function CardForm({
         GTQ: currencies.includes('GTQ') ? parseAmount(form.creditLimitGTQ) : 0,
         USD: currencies.includes('USD') ? parseAmount(form.creditLimitUSD) : 0
       },
+      benefitsDescription: form.benefitsDescription.trim() || undefined,
       annualInterestRate: parseAmount(form.annualInterestRate),
       cutDay: clampNumber(parseAmount(form.cutDay), 1, 31),
       graceDays: clampNumber(parseAmount(form.graceDays), 0, 60),
@@ -2878,7 +2900,8 @@ function CardForm({
       currentBalances: {
         GTQ: currencies.includes('GTQ') ? parseAmount(form.currentBalanceGTQ) : 0,
         USD: currencies.includes('USD') ? parseAmount(form.currentBalanceUSD) : 0
-      }
+      },
+      paymentDueDate: form.paymentDueDate
     };
 
     onSave(nextCard);
@@ -2898,6 +2921,7 @@ function CardForm({
           <div className="grid gap-3">
             <TextField label="Banco" value={form.bank} onChange={(value) => updateField('bank', value)} required />
             <TextField label="Alias" value={form.alias} onChange={(value) => updateField('alias', value)} required />
+            <TextAreaField label="Beneficio" value={form.benefitsDescription} onChange={(value) => updateField('benefitsDescription', value)} />
 
             <section className="rounded-lg bg-slate-100 p-3">
               <p className="text-sm font-semibold text-slate-700">Monedas habilitadas</p>
@@ -2948,6 +2972,8 @@ function CardForm({
                 />
               </div>
             ) : null}
+
+            <TextField label="Fecha de pago" type="date" value={form.paymentDueDate} onChange={(value) => updateField('paymentDueDate', value)} required />
 
             <div className="grid grid-cols-3 gap-3">
               <TextField label="Corte" type="number" value={form.cutDay} onChange={(value) => updateField('cutDay', value)} required />
@@ -3002,6 +3028,28 @@ function TextField({
         onChange={(event) => onChange(event.target.value)}
         required={required}
         type={type === 'number' ? 'text' : type}
+        value={value}
+      />
+    </label>
+  );
+}
+
+function TextAreaField({
+  label,
+  onChange,
+  value
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <label className="grid gap-1 text-sm font-medium text-slate-700">
+      {label}
+      <textarea
+        className="min-h-20 resize-none rounded-md border border-slate-300 px-3 py-2 text-base text-slate-950 outline-none focus:border-teal-700"
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="Ej. Puntos - 7% en comidas y 3% en gasolina"
         value={value}
       />
     </label>
@@ -3063,11 +3111,13 @@ function cardToForm(card: CreditCardAccount): CardFormState {
     primaryCurrency: card.primaryCurrency,
     creditLimitGTQ: String(getCardLimit(card, 'GTQ')),
     creditLimitUSD: String(getCardLimit(card, 'USD')),
+    benefitsDescription: card.benefitsDescription ?? '',
     annualInterestRate: String(card.annualInterestRate),
     cutDay: String(card.cutDay),
     graceDays: String(card.graceDays),
     currentBalanceGTQ: String(getCardBalance(card, 'GTQ')),
     currentBalanceUSD: String(getCardBalance(card, 'USD')),
+    paymentDueDate: getDateInputValue(getCardPaymentDueDate(card)),
     colorHex: card.colorHex
   };
 }
@@ -3127,6 +3177,18 @@ function getCardBalance(card: CreditCardAccount, currency: Currency): number {
   return card.currentBalances[currency] ?? 0;
 }
 
+function getCardPaymentDueDate(card: CreditCardAccount | CardPriority): Date {
+  if (card.paymentDueDate) return parseDateInput(card.paymentDueDate);
+  if ('nextPaymentDate' in card) return card.nextPaymentDate;
+  return parseDateInput(getEstimatedPaymentDueDateInput(String(card.cutDay), String(card.graceDays)));
+}
+
+function getEstimatedPaymentDueDateInput(cutDay: string, graceDays: string): string {
+  const safeCutDay = clampNumber(parseAmount(cutDay), 1, 31);
+  const safeGraceDays = clampNumber(parseAmount(graceDays), 0, 60);
+  return getDateInputValue(addCalendarDays(getNextCutDate(new Date(), safeCutDay), safeGraceDays));
+}
+
 function getCardLimit(card: CreditCardAccount, currency: Currency): number {
   return card.creditLimits[currency] ?? 0;
 }
@@ -3160,6 +3222,14 @@ function formatCurrencyList(currencies: Currency[]): string {
 
 function formatCardBalances(card: CreditCardAccount): string {
   return card.currencies.map((currency) => formatCurrency(getCardBalance(card, currency), currency)).join(' · ');
+}
+
+function formatPendingCardBalances(card: CreditCardAccount): string {
+  const pendingBalances = card.currencies
+    .filter((currency) => getCardBalance(card, currency) > 0)
+    .map((currency) => formatCurrency(getCardBalance(card, currency), currency));
+
+  return pendingBalances.length > 0 ? pendingBalances.join(' · ') : formatCardBalances(card);
 }
 
 function sumPaymentsByCurrency(payments: PaymentRecord[], currency: Currency): number {
@@ -3239,16 +3309,23 @@ function buildPayableAgenda(
   today: Date
 ): PayableAgendaItem[] {
   const horizonEnd = addCalendarDays(today, 45);
-  const cardItems = cards.map((card) => ({
-    amount: getCardBalance(card, card.primaryCurrency),
-    currency: card.primaryCurrency,
-    dueDate: card.nextPaymentDate,
-    id: `card:${card.id}:${getDateInputValue(card.nextPaymentDate)}`,
-    isPaid: getTotalCardBalance(card) === 0,
-    kind: 'card' as const,
-    subtitle: `${card.bank} · vencimiento de tarjeta`,
-    title: card.alias
-  }));
+  const cardItems = cards
+    .filter((card) => getTotalCardBalance(card) > 0)
+    .map((card) => {
+      const dueDate = getCardPaymentDueDate(card);
+
+      return {
+        amount: getCardBalance(card, card.primaryCurrency),
+        amountLabel: formatPendingCardBalances(card),
+        currency: card.primaryCurrency,
+        dueDate,
+        id: `card:${card.id}:${getDateInputValue(dueDate)}`,
+        isPaid: false,
+        kind: 'card' as const,
+        subtitle: `${card.bank} · saldo de tarjeta`,
+        title: card.alias
+      };
+    });
 
   const payableItems = payables.flatMap((payable) =>
     getPayableDueDates(payable, today, horizonEnd).map((dueDate) => {
