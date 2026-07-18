@@ -40,6 +40,7 @@ export async function getCloudUser() {
   if (!supabase) return null;
 
   const { data, error } = await supabase.auth.getUser();
+  if (isMissingAuthSessionError(error)) return null;
   if (error) throw error;
   return data.user;
 }
@@ -174,4 +175,11 @@ function isMissingCloudTableError(error: unknown): boolean {
 
   const cloudError = error as { code?: string; message?: string };
   return cloudError.code === '42P01' || cloudError.message?.includes('does not exist') === true;
+}
+
+function isMissingAuthSessionError(error: unknown): boolean {
+  if (!(error instanceof Error) && (typeof error !== 'object' || error === null)) return false;
+
+  const authError = error as { message?: string; name?: string };
+  return authError.name === 'AuthSessionMissingError' || authError.message === 'Auth session missing!';
 }
