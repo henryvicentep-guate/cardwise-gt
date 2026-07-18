@@ -6,6 +6,7 @@ import {
   CreditCard,
   Filter,
   GitMerge,
+  KeyRound,
   LogOut,
   Pencil,
   Plus,
@@ -806,6 +807,7 @@ function App() {
             message={cloudMessage}
             privateMode
             status={cloudReady ? cloudStatus : 'syncing'}
+            onOpenPasswordUpdate={() => setPasswordRecoveryOpen(true)}
             onPasswordReset={handlePasswordReset}
             onSignIn={handleCloudSignIn}
             onSignOut={handleCloudSignOut}
@@ -839,6 +841,7 @@ function App() {
           <CloudSyncPanel
             email={cloudUserEmail}
             message={cloudMessage}
+            onOpenPasswordUpdate={() => setPasswordRecoveryOpen(true)}
             onPasswordReset={handlePasswordReset}
             status={cloudStatus}
             onSignIn={handleCloudSignIn}
@@ -1057,6 +1060,7 @@ function DatePill({ label, value }: { label: string; value: string }) {
 function CloudSyncPanel({
   email,
   message,
+  onOpenPasswordUpdate,
   onPasswordReset,
   onSignIn,
   onSignOut,
@@ -1066,6 +1070,7 @@ function CloudSyncPanel({
 }: {
   email: string | null;
   message: string;
+  onOpenPasswordUpdate: () => void;
   onPasswordReset: (email: string) => Promise<void>;
   onSignIn: (email: string, password: string) => Promise<void>;
   onSignOut: () => Promise<void>;
@@ -1154,14 +1159,24 @@ function CloudSyncPanel({
           <p className="mt-1 truncate">{email ?? getCloudStatusLabel(status)}</p>
         </div>
         {email ? (
-          <button
-            className="grid size-9 shrink-0 place-items-center rounded-md bg-white/10 text-white disabled:opacity-60"
-            aria-label="Cerrar sesion de CardWise"
-            disabled={disabled}
-            onClick={() => void onSignOut()}
-          >
-            <LogOut size={17} />
-          </button>
+          <div className="flex shrink-0 gap-2">
+            <button
+              className="grid size-9 place-items-center rounded-md bg-white/10 text-white disabled:opacity-60"
+              aria-label="Cambiar contrasena de CardWise"
+              disabled={disabled}
+              onClick={onOpenPasswordUpdate}
+            >
+              <KeyRound size={17} />
+            </button>
+            <button
+              className="grid size-9 place-items-center rounded-md bg-white/10 text-white disabled:opacity-60"
+              aria-label="Cerrar sesion de CardWise"
+              disabled={disabled}
+              onClick={() => void onSignOut()}
+            >
+              <LogOut size={17} />
+            </button>
+          </div>
         ) : (
           <button
             className="min-h-9 rounded-md bg-white px-3 text-xs font-semibold text-slate-950 disabled:opacity-60"
