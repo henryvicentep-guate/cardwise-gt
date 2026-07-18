@@ -1,6 +1,7 @@
 import type { BalanceSnapshot } from '../../features/balances/types';
 import { demoCards } from '../../features/cards/demoCards';
 import type { CreditCardAccount, Currency } from '../../features/cards/types';
+import type { CardExpense, ExpenseCategory, ExpensePayment } from '../../features/expenses/types';
 import type { InstallmentPlan } from '../../features/installments/types';
 import type { PayableAccount, PayableAccountPayment } from '../../features/payables/types';
 import type { PaymentRecord } from '../../features/payments/types';
@@ -9,6 +10,9 @@ const CARDS_STORAGE_KEY = 'cardwise.cards.v1';
 const PAYMENTS_STORAGE_KEY = 'cardwise.payments.v1';
 const INSTALLMENTS_STORAGE_KEY = 'cardwise.installments.v1';
 const BALANCE_SNAPSHOTS_STORAGE_KEY = 'cardwise.balanceSnapshots.v1';
+const EXPENSE_CATEGORIES_STORAGE_KEY = 'cardwise.expenseCategories.v1';
+const EXPENSE_PAYMENTS_STORAGE_KEY = 'cardwise.expensePayments.v1';
+const EXPENSES_STORAGE_KEY = 'cardwise.expenses.v1';
 const PAYABLES_STORAGE_KEY = 'cardwise.payables.v1';
 const PAYABLE_PAYMENTS_STORAGE_KEY = 'cardwise.payablePayments.v1';
 
@@ -204,6 +208,41 @@ export const localBalanceSnapshotsStorage = {
   }
 };
 
+export const localExpenseCategoriesStorage = {
+  load(): ExpenseCategory[] {
+    return readCollection<ExpenseCategory>(EXPENSE_CATEGORIES_STORAGE_KEY, getDefaultExpenseCategories());
+  },
+  save(categories: ExpenseCategory[]) {
+    writeCollection(EXPENSE_CATEGORIES_STORAGE_KEY, categories);
+  }
+};
+
+export const localExpensesStorage = {
+  load(): CardExpense[] {
+    const { idMap } = loadMigratedCards();
+    return readCollection<CardExpense>(EXPENSES_STORAGE_KEY, []).map((expense) => ({
+      ...expense,
+      cardId: idMap[expense.cardId] ?? expense.cardId
+    }));
+  },
+  save(expenses: CardExpense[]) {
+    writeCollection(EXPENSES_STORAGE_KEY, expenses);
+  }
+};
+
+export const localExpensePaymentsStorage = {
+  load(): ExpensePayment[] {
+    const { idMap } = loadMigratedCards();
+    return readCollection<ExpensePayment>(EXPENSE_PAYMENTS_STORAGE_KEY, []).map((payment) => ({
+      ...payment,
+      cardId: idMap[payment.cardId] ?? payment.cardId
+    }));
+  },
+  save(payments: ExpensePayment[]) {
+    writeCollection(EXPENSE_PAYMENTS_STORAGE_KEY, payments);
+  }
+};
+
 export const localPayablesStorage = {
   load(): PayableAccount[] {
     return readCollection<PayableAccount>(PAYABLES_STORAGE_KEY, []).map(migratePayable);
@@ -221,3 +260,15 @@ export const localPayablePaymentsStorage = {
     writeCollection(PAYABLE_PAYMENTS_STORAGE_KEY, payments);
   }
 };
+
+function getDefaultExpenseCategories(): ExpenseCategory[] {
+  const createdAt = '2026-01-01T00:00:00.000Z';
+  return [
+    { id: 'educacion', name: 'Educacion', colorHex: '#0f766e', active: true, createdAt },
+    { id: 'supermercado', name: 'Supermercado', colorHex: '#2563eb', active: true, createdAt },
+    { id: 'salud', name: 'Salud', colorHex: '#dc2626', active: true, createdAt },
+    { id: 'transporte', name: 'Transporte', colorHex: '#ca8a04', active: true, createdAt },
+    { id: 'servicios', name: 'Servicios', colorHex: '#7c3aed', active: true, createdAt },
+    { id: 'otros', name: 'Otros', colorHex: '#475569', active: true, createdAt }
+  ];
+}

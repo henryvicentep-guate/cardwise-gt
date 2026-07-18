@@ -1,5 +1,6 @@
 import type { BalanceSnapshot } from '../../features/balances/types';
 import type { CreditCardAccount } from '../../features/cards/types';
+import type { CardExpense, ExpenseCategory, ExpensePayment } from '../../features/expenses/types';
 import type { InstallmentPlan } from '../../features/installments/types';
 import type { PayableAccount, PayableAccountPayment } from '../../features/payables/types';
 import type { PaymentRecord } from '../../features/payments/types';
@@ -10,6 +11,9 @@ type CardWiseTable =
   | 'cardwise_payments'
   | 'cardwise_installments'
   | 'cardwise_balance_snapshots'
+  | 'cardwise_expense_categories'
+  | 'cardwise_expense_payments'
+  | 'cardwise_expenses'
   | 'cardwise_payables'
   | 'cardwise_payable_payments';
 
@@ -23,6 +27,9 @@ type CloudRecord<T> = {
 export type CardWiseCloudData = {
   balanceSnapshots: BalanceSnapshot[];
   cards: CreditCardAccount[];
+  expenseCategories: ExpenseCategory[];
+  expensePayments: ExpensePayment[];
+  expenses: CardExpense[];
   installments: InstallmentPlan[];
   payablePayments: PayableAccountPayment[];
   payables: PayableAccount[];
@@ -73,16 +80,19 @@ export async function signOutFromCloud() {
 }
 
 export async function loadCloudData(): Promise<CardWiseCloudData> {
-  const [cards, payments, installments, balanceSnapshots, payables, payablePayments] = await Promise.all([
+  const [cards, payments, installments, balanceSnapshots, payables, payablePayments, expenseCategories, expenses, expensePayments] = await Promise.all([
     loadCloudCollection<CreditCardAccount>('cardwise_cards'),
     loadCloudCollection<PaymentRecord>('cardwise_payments'),
     loadCloudCollection<InstallmentPlan>('cardwise_installments'),
     loadCloudCollection<BalanceSnapshot>('cardwise_balance_snapshots'),
     loadCloudCollection<PayableAccount>('cardwise_payables'),
-    loadCloudCollection<PayableAccountPayment>('cardwise_payable_payments')
+    loadCloudCollection<PayableAccountPayment>('cardwise_payable_payments'),
+    loadOptionalCloudCollection<ExpenseCategory>('cardwise_expense_categories'),
+    loadOptionalCloudCollection<CardExpense>('cardwise_expenses'),
+    loadOptionalCloudCollection<ExpensePayment>('cardwise_expense_payments')
   ]);
 
-  return { balanceSnapshots, cards, installments, payablePayments, payables, payments };
+  return { balanceSnapshots, cards, expenseCategories, expensePayments, expenses, installments, payablePayments, payables, payments };
 }
 
 export async function saveCloudData(data: CardWiseCloudData) {
@@ -92,7 +102,10 @@ export async function saveCloudData(data: CardWiseCloudData) {
     replaceCloudCollection('cardwise_installments', data.installments),
     replaceCloudCollection('cardwise_balance_snapshots', data.balanceSnapshots),
     replaceCloudCollection('cardwise_payables', data.payables),
-    replaceCloudCollection('cardwise_payable_payments', data.payablePayments)
+    replaceCloudCollection('cardwise_payable_payments', data.payablePayments),
+    replaceOptionalCloudCollection('cardwise_expense_categories', data.expenseCategories),
+    replaceOptionalCloudCollection('cardwise_expenses', data.expenses),
+    replaceOptionalCloudCollection('cardwise_expense_payments', data.expensePayments)
   ]);
 }
 
@@ -103,6 +116,15 @@ async function loadCloudCollection<T>(table: CardWiseTable): Promise<T[]> {
   if (error) throw error;
 
   return (data as Array<Pick<CloudRecord<T>, 'payload'>> | null)?.map((record) => record.payload) ?? [];
+}
+
+async function loadOptionalCloudCollection<T>(table: CardWiseTable): Promise<T[]> {
+  try {
+    return await loadCloudCollection<T>(table);
+  } catch (error) {
+    if (isMissingCloudTableError(error)) return [];
+    throw error;
+  }
 }
 
 async function replaceCloudCollection<T extends { id: string }>(table: CardWiseTable, items: T[]) {
@@ -136,4 +158,20 @@ async function replaceCloudCollection<T extends { id: string }>(table: CardWiseT
 
   const { error } = await supabase.from(table).upsert(rows);
   if (error) throw error;
+}
+
+async function replaceOptionalCloudCollection<T extends { id: string }>(table: CardWiseTable, items: T[]) {
+  try {
+    await replaceCloudCollection(table, items);
+  } catch (error) {
+    if (isMissingCloudTableError(error)) return;
+    throw error;
+  }
+}
+
+function isMissingCloudTableError(error: unknown): boolean {
+  if (!(error instanceof Error) && (typeof error !== 'object' || error === null)) return false;
+
+  const cloudError = error as { code?: string; message?: string };
+  return cloudError.code === '42P01' || cloudError.message?.includes('does not exist') === true;
 }

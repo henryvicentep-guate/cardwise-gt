@@ -1,21 +1,24 @@
 import {
   Banknote,
-  CalendarDays,
+  ChevronDown,
   ClipboardList,
   Cloud,
   CreditCard,
+  Filter,
   GitMerge,
   LogOut,
   Pencil,
   Plus,
   ReceiptText,
   RefreshCw,
+  Tags,
   X
 } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import type { BalanceSnapshot } from '../features/balances/types';
 import { buildPriorityRanking, getLastCutDate, getNextCutDate } from '../features/cards/priority';
 import type { CardPriority, CreditCardAccount, Currency } from '../features/cards/types';
+import type { CardExpense, ExpenseCategory, ExpensePayment } from '../features/expenses/types';
 import type { InstallmentPlan } from '../features/installments/types';
 import type {
   PayableAccount,
@@ -41,6 +44,9 @@ import {
 import {
   localBalanceSnapshotsStorage,
   localCardsStorage,
+  localExpenseCategoriesStorage,
+  localExpensePaymentsStorage,
+  localExpensesStorage,
   localInstallmentsStorage,
   localPayablePaymentsStorage,
   localPayablesStorage,
@@ -95,6 +101,30 @@ type BalanceUpdateFormState = {
   paymentDueDate: string;
   statementDate: string;
 };
+
+type ExpenseFormState = {
+  amount: string;
+  cardId: string;
+  categoryId: string;
+  currency: Currency;
+  date: string;
+  description: string;
+};
+
+type ExpensePaymentFormState = {
+  amount: string;
+  cardId: string;
+  currency: Currency;
+  date: string;
+  notes: string;
+};
+
+type ExpenseCategoryFormState = {
+  colorHex: string;
+  name: string;
+};
+
+type ExpenseViewMode = 'cycle' | 'month';
 
 type PayableFormState = {
   amount: string;
@@ -251,9 +281,15 @@ function App() {
   const [paymentCardId, setPaymentCardId] = useState<string | null>(null);
   const [payments, setPayments] = useState<PaymentRecord[]>(localPaymentsStorage.load);
   const [balanceSnapshots, setBalanceSnapshots] = useState<BalanceSnapshot[]>(localBalanceSnapshotsStorage.load);
+  const [expenseCategories, setExpenseCategories] = useState<ExpenseCategory[]>(localExpenseCategoriesStorage.load);
+  const [expensePayments, setExpensePayments] = useState<ExpensePayment[]>(localExpensePaymentsStorage.load);
+  const [expenses, setExpenses] = useState<CardExpense[]>(localExpensesStorage.load);
   const [payables, setPayables] = useState<PayableAccount[]>(localPayablesStorage.load);
   const [payablePayments, setPayablePayments] = useState<PayableAccountPayment[]>(localPayablePaymentsStorage.load);
   const [balanceFormOpen, setBalanceFormOpen] = useState(false);
+  const [expenseFormOpen, setExpenseFormOpen] = useState(false);
+  const [expensePaymentFormOpen, setExpensePaymentFormOpen] = useState(false);
+  const [expenseCategoryFormOpen, setExpenseCategoryFormOpen] = useState(false);
   const [payableFormOpen, setPayableFormOpen] = useState(false);
   const [editingPayable, setEditingPayable] = useState<PayableAccount | null>(null);
   const [payablePaymentDraft, setPayablePaymentDraft] = useState<PayablePaymentDraft | null>(null);
@@ -305,6 +341,12 @@ function App() {
           localInstallmentsStorage.save(cloudData.installments);
           setBalanceSnapshots(cloudData.balanceSnapshots);
           localBalanceSnapshotsStorage.save(cloudData.balanceSnapshots);
+          setExpenseCategories(cloudData.expenseCategories.length > 0 ? cloudData.expenseCategories : localExpenseCategoriesStorage.load());
+          localExpenseCategoriesStorage.save(cloudData.expenseCategories.length > 0 ? cloudData.expenseCategories : localExpenseCategoriesStorage.load());
+          setExpenses(cloudData.expenses);
+          localExpensesStorage.save(cloudData.expenses);
+          setExpensePayments(cloudData.expensePayments);
+          localExpensePaymentsStorage.save(cloudData.expensePayments);
           setPayables(cloudData.payables);
           localPayablesStorage.save(cloudData.payables);
           setPayablePayments(cloudData.payablePayments);
@@ -342,6 +384,12 @@ function App() {
             localInstallmentsStorage.save(cloudData.installments);
             setBalanceSnapshots(cloudData.balanceSnapshots);
             localBalanceSnapshotsStorage.save(cloudData.balanceSnapshots);
+            setExpenseCategories(cloudData.expenseCategories.length > 0 ? cloudData.expenseCategories : localExpenseCategoriesStorage.load());
+            localExpenseCategoriesStorage.save(cloudData.expenseCategories.length > 0 ? cloudData.expenseCategories : localExpenseCategoriesStorage.load());
+            setExpenses(cloudData.expenses);
+            localExpensesStorage.save(cloudData.expenses);
+            setExpensePayments(cloudData.expensePayments);
+            localExpensePaymentsStorage.save(cloudData.expensePayments);
             setPayables(cloudData.payables);
             localPayablesStorage.save(cloudData.payables);
             setPayablePayments(cloudData.payablePayments);
@@ -372,7 +420,7 @@ function App() {
     let cancelled = false;
     const timeoutId = window.setTimeout(() => {
       setCloudStatus('syncing');
-      void saveCloudData({ balanceSnapshots, cards, installments, payablePayments, payables, payments })
+      void saveCloudData({ balanceSnapshots, cards, expenseCategories, expensePayments, expenses, installments, payablePayments, payables, payments })
         .then(() => {
           if (cancelled) return;
           setCloudStatus('synced');
@@ -389,7 +437,7 @@ function App() {
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [balanceSnapshots, cards, cloudReady, cloudUserEmail, installments, payablePayments, payables, payments]);
+  }, [balanceSnapshots, cards, cloudReady, cloudUserEmail, expenseCategories, expensePayments, expenses, installments, payablePayments, payables, payments]);
 
   function saveCards(nextCards: CreditCardAccount[]) {
     setCards(nextCards);
@@ -404,6 +452,21 @@ function App() {
   function saveBalanceSnapshots(nextSnapshots: BalanceSnapshot[]) {
     setBalanceSnapshots(nextSnapshots);
     localBalanceSnapshotsStorage.save(nextSnapshots);
+  }
+
+  function saveExpenseCategories(nextCategories: ExpenseCategory[]) {
+    setExpenseCategories(nextCategories);
+    localExpenseCategoriesStorage.save(nextCategories);
+  }
+
+  function saveExpenses(nextExpenses: CardExpense[]) {
+    setExpenses(nextExpenses);
+    localExpensesStorage.save(nextExpenses);
+  }
+
+  function saveExpensePayments(nextPayments: ExpensePayment[]) {
+    setExpensePayments(nextPayments);
+    localExpensePaymentsStorage.save(nextPayments);
   }
 
   function saveInstallments(nextInstallments: InstallmentPlan[]) {
@@ -479,6 +542,21 @@ function App() {
   function openBalanceForm(cardId?: string) {
     setBalanceCardId(cardId ?? priorityCards[0]?.id ?? null);
     setBalanceFormOpen(true);
+  }
+
+  function handleSaveExpense(expense: CardExpense) {
+    saveExpenses([expense, ...expenses]);
+    setExpenseFormOpen(false);
+  }
+
+  function handleSaveExpensePayment(payment: ExpensePayment) {
+    saveExpensePayments([payment, ...expensePayments]);
+    setExpensePaymentFormOpen(false);
+  }
+
+  function handleSaveExpenseCategory(category: ExpenseCategory) {
+    saveExpenseCategories([category, ...expenseCategories]);
+    setExpenseCategoryFormOpen(false);
   }
 
   function handleBalanceUpdate(snapshot: BalanceSnapshot) {
@@ -629,6 +707,8 @@ function App() {
 
     saveCards(nextCards);
     savePayments(payments.map(moveToMergedCard));
+    saveExpenses(expenses.map(moveToMergedCard));
+    saveExpensePayments(expensePayments.map(moveToMergedCard));
     saveInstallments(installments.map((plan) => (plan.cardId === sourceCardId ? { ...plan, cardId: targetCardId } : plan)));
     saveBalanceSnapshots(balanceSnapshots.map(moveToMergedCard));
     setSelectedCardId(targetCardId);
@@ -774,7 +854,17 @@ function App() {
           />
         ) : null}
 
-        {activeTab === 'calendar' ? <CalendarView cards={priorityCards} /> : null}
+        {activeTab === 'calendar' ? (
+          <ExpensesView
+            cards={priorityCards}
+            categories={expenseCategories}
+            expensePayments={expensePayments}
+            expenses={expenses}
+            onCreateCategory={() => setExpenseCategoryFormOpen(true)}
+            onRegisterExpense={() => setExpenseFormOpen(true)}
+            onRegisterExpensePayment={() => setExpensePaymentFormOpen(true)}
+          />
+        ) : null}
 
         <BottomNav activeTab={activeTab} onSelectTab={setActiveTab} />
       </section>
@@ -826,6 +916,29 @@ function App() {
           }}
           onSave={handleBalanceUpdate}
         />
+      ) : null}
+
+      {expenseFormOpen ? (
+        <ExpenseForm
+          cards={priorityCards}
+          categories={expenseCategories.filter((category) => category.active)}
+          onClose={() => setExpenseFormOpen(false)}
+          onSave={handleSaveExpense}
+        />
+      ) : null}
+
+      {expensePaymentFormOpen ? (
+        <ExpensePaymentForm
+          cards={priorityCards}
+          expensePayments={expensePayments}
+          expenses={expenses}
+          onClose={() => setExpensePaymentFormOpen(false)}
+          onSave={handleSaveExpensePayment}
+        />
+      ) : null}
+
+      {expenseCategoryFormOpen ? (
+        <ExpenseCategoryForm onClose={() => setExpenseCategoryFormOpen(false)} onSave={handleSaveExpenseCategory} />
       ) : null}
 
       {mergeFormOpen ? (
@@ -1676,26 +1789,262 @@ function PaymentsView({
   );
 }
 
-function CalendarView({ cards }: { cards: CardPriority[] }) {
+function ExpensesView({
+  cards,
+  categories,
+  expensePayments,
+  expenses,
+  onCreateCategory,
+  onRegisterExpense,
+  onRegisterExpensePayment
+}: {
+  cards: CardPriority[];
+  categories: ExpenseCategory[];
+  expensePayments: ExpensePayment[];
+  expenses: CardExpense[];
+  onCreateCategory: () => void;
+  onRegisterExpense: () => void;
+  onRegisterExpensePayment: () => void;
+}) {
+  const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState('all');
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<ExpenseViewMode>('cycle');
+  const [monthValue, setMonthValue] = useState(() => getMonthInputValue(new Date()));
+  const [cycleCutDate, setCycleCutDate] = useState(() => getDateInputValue(cards[0]?.nextCutDate ?? getNextCutDate(new Date(), 25)));
+  const selectedSingleCard = selectedCardIds.length === 1 ? cards.find((card) => card.id === selectedCardIds[0]) : null;
+  const effectiveCycleCutDate = selectedSingleCard ? getDateInputValue(selectedSingleCard.nextCutDate) : cycleCutDate;
+  const activeCardIds = selectedCardIds.length > 0 ? selectedCardIds : cards.map((card) => card.id);
+  const visibleExpenses = expenses
+    .filter((expense) => activeCardIds.includes(expense.cardId))
+    .filter((expense) => selectedCategoryId === 'all' || expense.categoryId === selectedCategoryId)
+    .filter((expense) => (viewMode === 'cycle' ? expense.cycleCutDate === effectiveCycleCutDate : isSameMonthValue(expense.date, monthValue)));
+  const visibleExpensePayments = expensePayments
+    .filter((payment) => activeCardIds.includes(payment.cardId))
+    .filter((payment) => (viewMode === 'cycle' ? payment.cycleCutDate === effectiveCycleCutDate : isSameMonthValue(payment.date, monthValue)));
+  const totalByCurrency = summarizeExpenses(visibleExpenses);
+  const paidByCurrency = summarizeExpensePayments(visibleExpensePayments);
+  const pendingByCurrency = {
+    GTQ: Math.max(totalByCurrency.GTQ - paidByCurrency.GTQ, 0),
+    USD: Math.max(totalByCurrency.USD - paidByCurrency.USD, 0)
+  };
+  const availableCycleOptions = getExpenseCycleOptions(cards, expenses);
+  const paymentTargetDate = selectedSingleCard
+    ? viewMode === 'cycle'
+      ? parseDateInput(effectiveCycleCutDate)
+      : selectedSingleCard.nextCutDate
+    : null;
+  const cardSummaryRows = buildExpenseCardSummaryRows(cards, activeCardIds, visibleExpenses, visibleExpensePayments);
+
+  function toggleCard(cardId: string) {
+    setSelectedCardIds((current) => (current.includes(cardId) ? current.filter((id) => id !== cardId) : [...current, cardId]));
+  }
+
   return (
     <section className="flex-1 px-4 pb-24 pt-5">
-      <h2 className="text-lg font-semibold">Calendario</h2>
-      <div className="mt-4 space-y-3">
-        {cards.map((card) => (
-          <article key={card.id} className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="flex items-center gap-2">
-              <span className="size-3 rounded-full" style={{ backgroundColor: card.colorHex }} />
-              <h3 className="font-semibold">{card.alias}</h3>
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-              <DatePill label="Ultimo corte" value={formatShortDate(card.lastCutDate)} />
-              <DatePill label="Hace" value={formatElapsedDays(card.daysSinceLastCut)} />
-              <DatePill label="Proximo corte" value={formatShortDate(card.nextCutDate)} />
-              <DatePill label="Pagar antes" value={formatShortDate(getCardPaymentDueDate(card))} />
-            </div>
-          </article>
-        ))}
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold">Consumos y abonos</h2>
+          <p className="text-sm text-slate-500">Saldo objetivo antes del corte, separado del estado de cuenta.</p>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <button className="grid size-11 place-items-center rounded-md bg-slate-100 text-slate-800" aria-label="Crear categoria" onClick={onCreateCategory}>
+            <Tags size={20} />
+          </button>
+          <button className="grid size-11 place-items-center rounded-md bg-slate-950 text-white" aria-label="Registrar consumo" onClick={onRegisterExpense} disabled={cards.length === 0}>
+            <Plus size={20} />
+          </button>
+        </div>
       </div>
+
+      <section className="rounded-lg bg-slate-950 p-4 text-white">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-teal-200">Pendiente por consumos</p>
+            <p className="mt-1 text-sm text-slate-300">
+              {viewMode === 'cycle' ? `Corte ${formatShortDate(parseDateInput(effectiveCycleCutDate))}` : `Mes ${formatMonthLabel(monthValue)}`}
+            </p>
+          </div>
+          <button className="inline-flex min-h-9 items-center gap-2 rounded-md bg-white px-3 text-sm font-semibold text-slate-950" onClick={onRegisterExpensePayment} disabled={visibleExpenses.length === 0}>
+            <Banknote size={16} />
+            Abonar
+          </button>
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <div className="rounded-md bg-white/10 px-3 py-2">
+            <p className="text-xs font-semibold uppercase text-teal-200">GTQ</p>
+            <p className="mt-1 text-xl font-bold">{formatCurrency(pendingByCurrency.GTQ, 'GTQ')}</p>
+          </div>
+          <div className="rounded-md bg-white/10 px-3 py-2">
+            <p className="text-xs font-semibold uppercase text-teal-200">USD</p>
+            <p className="mt-1 text-xl font-bold">{formatCurrency(pendingByCurrency.USD, 'USD')}</p>
+          </div>
+        </div>
+        <p className="mt-3 text-xs leading-5 text-slate-300">
+          Total {formatCurrency(totalByCurrency.GTQ, 'GTQ')} / {formatCurrency(totalByCurrency.USD, 'USD')} · abonado {formatCurrency(paidByCurrency.GTQ, 'GTQ')} / {formatCurrency(paidByCurrency.USD, 'USD')}
+        </p>
+        {paymentTargetDate ? (
+          <p className="mt-1 text-xs leading-5 text-teal-100">
+            Paga antes del {formatShortDate(paymentTargetDate)} para reducir el saldo del proximo corte y posibles intereses.
+          </p>
+        ) : null}
+      </section>
+
+      <ExpenseCardSummaryTable open={summaryOpen} rows={cardSummaryRows} onToggle={() => setSummaryOpen((current) => !current)} />
+
+      <section className="mt-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+          <Filter size={16} />
+          Filtros
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <label className="grid gap-1 text-sm font-medium text-slate-700">
+            Vista
+            <select className="h-11 rounded-md border border-slate-300 bg-white px-3 text-base text-slate-950 outline-none focus:border-teal-700" value={viewMode} onChange={(event) => setViewMode(event.target.value as ExpenseViewMode)}>
+              <option value="cycle">Ciclo tarjeta</option>
+              <option value="month">Mes corrido</option>
+            </select>
+          </label>
+          {viewMode === 'cycle' && selectedSingleCard ? (
+            <div className="grid gap-1 text-sm font-medium text-slate-700">
+              Corte
+              <div className="flex min-h-11 items-center rounded-md bg-slate-100 px-3 text-base font-semibold text-slate-700">
+                {formatShortDate(parseDateInput(effectiveCycleCutDate))}
+              </div>
+            </div>
+          ) : null}
+          {viewMode === 'cycle' && !selectedSingleCard ? (
+            <label className="grid gap-1 text-sm font-medium text-slate-700">
+              Corte
+              <select className="h-11 rounded-md border border-slate-300 bg-white px-3 text-base text-slate-950 outline-none focus:border-teal-700" value={cycleCutDate} onChange={(event) => setCycleCutDate(event.target.value)}>
+                {availableCycleOptions.map((dateValue) => (
+                  <option key={dateValue} value={dateValue}>
+                    {formatShortDate(parseDateInput(dateValue))}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          {viewMode === 'month' ? (
+            <label className="grid gap-1 text-sm font-medium text-slate-700">
+              Mes
+              <input className="h-11 rounded-md border border-slate-300 bg-white px-3 text-base text-slate-950 outline-none focus:border-teal-700" type="month" value={monthValue} onChange={(event) => setMonthValue(event.target.value)} />
+            </label>
+          ) : null}
+        </div>
+        <label className="mt-3 grid gap-1 text-sm font-medium text-slate-700">
+          Categoria
+          <select className="h-11 rounded-md border border-slate-300 bg-white px-3 text-base text-slate-950 outline-none focus:border-teal-700" value={selectedCategoryId} onChange={(event) => setSelectedCategoryId(event.target.value)}>
+            <option value="all">Todas</option>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button className={`min-h-9 rounded-md px-3 text-sm font-semibold ${selectedCardIds.length === 0 ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-700'}`} onClick={() => setSelectedCardIds([])}>
+            Todas
+          </button>
+          {cards.map((card) => (
+            <button key={card.id} className={`min-h-9 rounded-md px-3 text-sm font-semibold ${activeCardIds.includes(card.id) && selectedCardIds.length > 0 ? 'bg-teal-700 text-white' : 'bg-slate-100 text-slate-700'}`} onClick={() => toggleCard(card.id)}>
+              {card.alias}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="mt-5">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-base font-semibold">Consumos</h3>
+          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">{visibleExpenses.length}</span>
+        </div>
+        <div className="mt-3 space-y-3">
+          {visibleExpenses.length > 0 ? (
+            visibleExpenses.map((expense) => <ExpenseItem key={expense.id} categories={categories} expense={expense} />)
+          ) : (
+            <div className="rounded-lg border border-dashed border-slate-300 bg-white p-5 text-center text-sm text-slate-500">
+              Registra un consumo y selecciona tarjeta, categoria y fecha.
+            </div>
+          )}
+        </div>
+      </section>
+    </section>
+  );
+}
+
+function ExpenseItem({ categories, expense }: { categories: ExpenseCategory[]; expense: CardExpense }) {
+  const category = categories.find((item) => item.id === expense.categoryId);
+
+  return (
+    <article className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="size-3 rounded-full" style={{ backgroundColor: category?.colorHex ?? '#475569' }} />
+            <h4 className="truncate font-semibold">{expense.description}</h4>
+          </div>
+          <p className="mt-1 text-sm text-slate-500">
+            {expense.cardAlias} · {expense.categoryName} · {formatShortDate(parseDateInput(expense.date))}
+          </p>
+          <p className="mt-1 text-xs font-semibold text-slate-500">Corte {formatShortDate(parseDateInput(expense.cycleCutDate))}</p>
+        </div>
+        <p className="shrink-0 text-lg font-bold text-slate-950">{formatCurrency(expense.amount, expense.currency)}</p>
+      </div>
+    </article>
+  );
+}
+
+function ExpenseCardSummaryTable({
+  onToggle,
+  open,
+  rows
+}: {
+  onToggle: () => void;
+  open: boolean;
+  rows: Array<{ abonos: number; compras: number; currency: Currency; saldo: number; tarjeta: string }>;
+}) {
+  return (
+    <section className="mt-4 rounded-lg border border-slate-200 bg-white shadow-sm">
+      <button className="flex min-h-12 w-full items-center justify-between gap-3 px-4 text-left" type="button" onClick={onToggle}>
+        <div>
+          <h3 className="text-base font-semibold text-slate-950">Resumen por tarjeta</h3>
+          <p className="text-sm text-slate-500">{rows.length} saldos visibles</p>
+        </div>
+        <ChevronDown className={`shrink-0 text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`} size={20} />
+      </button>
+
+      {open ? (
+        <div className="border-t border-slate-200 px-4 py-3">
+          {rows.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[21rem] border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase text-slate-500">
+                    <th className="py-2 pr-3">Tarjeta</th>
+                    <th className="px-3 py-2 text-right">Compras</th>
+                    <th className="px-3 py-2 text-right">Abonos</th>
+                    <th className="py-2 pl-3 text-right">Saldo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row) => (
+                    <tr key={`${row.tarjeta}-${row.currency}`} className="border-b border-slate-100 last:border-0">
+                      <td className="py-2 pr-3 font-semibold text-slate-900">{row.tarjeta}</td>
+                      <td className="px-3 py-2 text-right text-slate-700">{formatCurrency(row.compras, row.currency)}</td>
+                      <td className="px-3 py-2 text-right text-slate-700">{formatCurrency(row.abonos, row.currency)}</td>
+                      <td className="py-2 pl-3 text-right font-bold text-slate-950">{formatCurrency(row.saldo, row.currency)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="rounded-md bg-slate-100 px-3 py-2 text-sm text-slate-500">No hay compras ni abonos para resumir con estos filtros.</p>
+          )}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -2077,7 +2426,7 @@ function BottomNav({
 }) {
   const items = [
     { icon: CreditCard, id: 'cards' as const, label: 'Tarjetas' },
-    { icon: CalendarDays, id: 'calendar' as const, label: 'Calendario' },
+    { icon: Tags, id: 'calendar' as const, label: 'Consumos' },
     { icon: ClipboardList, id: 'payables' as const, label: 'Cuentas' },
     { icon: ReceiptText, id: 'payment-history' as const, label: 'Pagos realizados' }
   ];
@@ -2099,6 +2448,269 @@ function BottomNav({
         ))}
       </div>
     </nav>
+  );
+}
+
+function ExpenseForm({
+  cards,
+  categories,
+  onClose,
+  onSave
+}: {
+  cards: CardPriority[];
+  categories: ExpenseCategory[];
+  onClose: () => void;
+  onSave: (expense: CardExpense) => void;
+}) {
+  const [form, setForm] = useState<ExpenseFormState>(() => ({
+    amount: '',
+    cardId: cards[0]?.id ?? '',
+    categoryId: categories[0]?.id ?? '',
+    currency: cards[0]?.primaryCurrency ?? 'GTQ',
+    date: getDateInputValue(new Date()),
+    description: ''
+  }));
+  const selectedCard = cards.find((card) => card.id === form.cardId);
+  const selectedCategory = categories.find((category) => category.id === form.categoryId);
+  const cycleCutDate = selectedCard ? getDateInputValue(getNextCutDate(parseDateInput(form.date), selectedCard.cutDay)) : form.date;
+
+  function updateField<Key extends keyof ExpenseFormState>(key: Key, value: ExpenseFormState[Key]) {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedCard || !selectedCategory) return;
+
+    onSave({
+      id: createLocalId(),
+      amount: parseAmount(form.amount),
+      cardAlias: selectedCard.alias,
+      cardId: selectedCard.id,
+      categoryId: selectedCategory.id,
+      categoryName: selectedCategory.name,
+      createdAt: new Date().toISOString(),
+      currency: form.currency,
+      cycleCutDate,
+      date: form.date,
+      description: form.description.trim()
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-20 bg-slate-950/60 px-4 py-6 backdrop-blur-sm">
+      <div className="mx-auto flex max-h-full w-full max-w-md flex-col rounded-lg bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+          <h2 className="text-lg font-semibold">Registrar consumo</h2>
+          <button className="grid size-9 place-items-center rounded-md bg-slate-100 text-slate-700" aria-label="Cerrar formulario" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <form className="overflow-y-auto px-4 py-4" onSubmit={handleSubmit}>
+          <div className="grid gap-3">
+            <TextField label="Descripcion" value={form.description} onChange={(value) => updateField('description', value)} required />
+            <label className="grid gap-1 text-sm font-medium text-slate-700">
+              Tarjeta
+              <select
+                className="h-11 rounded-md border border-slate-300 bg-white px-3 text-base text-slate-950 outline-none focus:border-teal-700"
+                value={form.cardId}
+                onChange={(event) => {
+                  const nextCard = cards.find((card) => card.id === event.target.value);
+                  setForm((current) => ({ ...current, cardId: event.target.value, currency: nextCard?.primaryCurrency ?? 'GTQ' }));
+                }}
+                required
+              >
+                {cards.map((card) => (
+                  <option key={card.id} value={card.id}>
+                    {card.alias}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="grid gap-1 text-sm font-medium text-slate-700">
+              Categoria
+              <select className="h-11 rounded-md border border-slate-300 bg-white px-3 text-base text-slate-950 outline-none focus:border-teal-700" value={form.categoryId} onChange={(event) => updateField('categoryId', event.target.value)} required>
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {selectedCard ? <CurrencySelect currencies={selectedCard.currencies} value={form.currency} onChange={(currency) => updateField('currency', currency)} /> : null}
+
+            <div className="grid grid-cols-2 gap-3">
+              <TextField label="Monto" type="number" value={form.amount} onChange={(value) => updateField('amount', value)} required />
+              <TextField label="Fecha" type="date" value={form.date} onChange={(value) => updateField('date', value)} required />
+            </div>
+
+            {selectedCard ? (
+              <div className="rounded-md bg-slate-100 px-3 py-2 text-sm text-slate-600">
+                Este consumo entrara al corte del <span className="font-semibold text-slate-950">{formatShortDate(parseDateInput(cycleCutDate))}</span>.
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mt-5 grid grid-cols-2 gap-3">
+            <button className="h-12 rounded-md border border-slate-300 font-semibold text-slate-700" type="button" onClick={onClose}>
+              Cancelar
+            </button>
+            <button className="h-12 rounded-md bg-slate-950 font-semibold text-white" type="submit">
+              Guardar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function ExpensePaymentForm({
+  cards,
+  expensePayments,
+  expenses,
+  onClose,
+  onSave
+}: {
+  cards: CardPriority[];
+  expensePayments: ExpensePayment[];
+  expenses: CardExpense[];
+  onClose: () => void;
+  onSave: (payment: ExpensePayment) => void;
+}) {
+  const [form, setForm] = useState<ExpensePaymentFormState>(() => ({
+    amount: '',
+    cardId: cards[0]?.id ?? '',
+    currency: cards[0]?.primaryCurrency ?? 'GTQ',
+    date: getDateInputValue(new Date()),
+    notes: ''
+  }));
+  const selectedCard = cards.find((card) => card.id === form.cardId);
+  const cycleCutDate = selectedCard ? getDateInputValue(getNextCutDate(parseDateInput(form.date), selectedCard.cutDay)) : form.date;
+  const pending = selectedCard ? getPendingExpenseBalance(expenses, expensePayments, selectedCard.id, form.currency, cycleCutDate) : 0;
+
+  function updateField<Key extends keyof ExpensePaymentFormState>(key: Key, value: ExpensePaymentFormState[Key]) {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedCard) return;
+
+    onSave({
+      id: createLocalId(),
+      amount: parseAmount(form.amount),
+      cardAlias: selectedCard.alias,
+      cardId: selectedCard.id,
+      createdAt: new Date().toISOString(),
+      currency: form.currency,
+      cycleCutDate,
+      date: form.date,
+      notes: form.notes.trim() || undefined
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-20 bg-slate-950/60 px-4 py-6 backdrop-blur-sm">
+      <div className="mx-auto flex max-h-full w-full max-w-md flex-col rounded-lg bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+          <h2 className="text-lg font-semibold">Abonar consumos</h2>
+          <button className="grid size-9 place-items-center rounded-md bg-slate-100 text-slate-700" aria-label="Cerrar formulario" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <form className="overflow-y-auto px-4 py-4" onSubmit={handleSubmit}>
+          <div className="grid gap-3">
+            <label className="grid gap-1 text-sm font-medium text-slate-700">
+              Tarjeta
+              <select
+                className="h-11 rounded-md border border-slate-300 bg-white px-3 text-base text-slate-950 outline-none focus:border-teal-700"
+                value={form.cardId}
+                onChange={(event) => {
+                  const nextCard = cards.find((card) => card.id === event.target.value);
+                  setForm((current) => ({ ...current, cardId: event.target.value, currency: nextCard?.primaryCurrency ?? 'GTQ' }));
+                }}
+                required
+              >
+                {cards.map((card) => (
+                  <option key={card.id} value={card.id}>
+                    {card.alias}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {selectedCard ? <CurrencySelect currencies={selectedCard.currencies} value={form.currency} onChange={(currency) => updateField('currency', currency)} /> : null}
+            <div className="grid grid-cols-2 gap-3">
+              <TextField label="Monto" type="number" value={form.amount} onChange={(value) => updateField('amount', value)} required />
+              <TextField label="Fecha" type="date" value={form.date} onChange={(value) => updateField('date', value)} required />
+            </div>
+            <TextField label="Nota opcional" value={form.notes} onChange={(value) => updateField('notes', value)} />
+            <div className="rounded-md bg-slate-100 px-3 py-2 text-sm text-slate-600">
+              Se aplicara al corte del <span className="font-semibold text-slate-950">{formatShortDate(parseDateInput(cycleCutDate))}</span>. Pendiente:{' '}
+              <span className="font-semibold text-slate-950">{formatCurrency(pending, form.currency)}</span>.
+            </div>
+          </div>
+
+          <div className="mt-5 grid grid-cols-2 gap-3">
+            <button className="h-12 rounded-md border border-slate-300 font-semibold text-slate-700" type="button" onClick={onClose}>
+              Cancelar
+            </button>
+            <button className="h-12 rounded-md bg-slate-950 font-semibold text-white" type="submit">
+              Guardar abono
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function ExpenseCategoryForm({ onClose, onSave }: { onClose: () => void; onSave: (category: ExpenseCategory) => void }) {
+  const [form, setForm] = useState<ExpenseCategoryFormState>({ colorHex: '#0f766e', name: '' });
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onSave({
+      id: createLocalId(),
+      active: true,
+      colorHex: form.colorHex,
+      createdAt: new Date().toISOString(),
+      name: form.name.trim()
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-20 bg-slate-950/60 px-4 py-6 backdrop-blur-sm">
+      <div className="mx-auto flex max-h-full w-full max-w-md flex-col rounded-lg bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+          <h2 className="text-lg font-semibold">Nueva categoria</h2>
+          <button className="grid size-9 place-items-center rounded-md bg-slate-100 text-slate-700" aria-label="Cerrar formulario" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+        <form className="overflow-y-auto px-4 py-4" onSubmit={handleSubmit}>
+          <div className="grid gap-3">
+            <TextField label="Nombre" value={form.name} onChange={(value) => setForm((current) => ({ ...current, name: value }))} required />
+            <label className="grid gap-1 text-sm font-medium text-slate-700">
+              Color
+              <input className="h-11 w-full rounded-md border border-slate-300 bg-white p-1" type="color" value={form.colorHex} onChange={(event) => setForm((current) => ({ ...current, colorHex: event.target.value }))} />
+            </label>
+          </div>
+          <div className="mt-5 grid grid-cols-2 gap-3">
+            <button className="h-12 rounded-md border border-slate-300 font-semibold text-slate-700" type="button" onClick={onClose}>
+              Cancelar
+            </button>
+            <button className="h-12 rounded-md bg-slate-950 font-semibold text-white" type="submit">
+              Guardar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 
@@ -3302,6 +3914,96 @@ function summarizePayments(payments: PaymentRecord[]): Record<Currency, number> 
   );
 }
 
+function summarizeExpenses(expenses: CardExpense[]): Record<Currency, number> {
+  return expenses.reduce(
+    (totals, expense) => ({
+      ...totals,
+      [expense.currency]: totals[expense.currency] + expense.amount
+    }),
+    { GTQ: 0, USD: 0 }
+  );
+}
+
+function summarizeExpensePayments(payments: ExpensePayment[]): Record<Currency, number> {
+  return payments.reduce(
+    (totals, payment) => ({
+      ...totals,
+      [payment.currency]: totals[payment.currency] + payment.amount
+    }),
+    { GTQ: 0, USD: 0 }
+  );
+}
+
+function buildExpenseCardSummaryRows(
+  cards: CardPriority[],
+  activeCardIds: string[],
+  expenses: CardExpense[],
+  payments: ExpensePayment[]
+): Array<{ abonos: number; compras: number; currency: Currency; saldo: number; tarjeta: string }> {
+  return cards
+    .filter((card) => activeCardIds.includes(card.id))
+    .flatMap((card) =>
+      card.currencies.map((currency) => {
+        const compras = expenses
+          .filter((expense) => expense.cardId === card.id && expense.currency === currency)
+          .reduce((total, expense) => total + expense.amount, 0);
+        const abonos = payments
+          .filter((payment) => payment.cardId === card.id && payment.currency === currency)
+          .reduce((total, payment) => total + payment.amount, 0);
+
+        return {
+          abonos,
+          compras,
+          currency,
+          saldo: Math.max(compras - abonos, 0),
+          tarjeta: `${card.alias} ${currency}`
+        };
+      })
+    )
+    .filter((row) => row.compras > 0 || row.abonos > 0);
+}
+
+function getPendingExpenseBalance(
+  expenses: CardExpense[],
+  payments: ExpensePayment[],
+  cardId: string,
+  currency: Currency,
+  cycleCutDate: string
+): number {
+  const spent = expenses
+    .filter((expense) => expense.cardId === cardId && expense.currency === currency && expense.cycleCutDate === cycleCutDate)
+    .reduce((total, expense) => total + expense.amount, 0);
+  const paid = payments
+    .filter((payment) => payment.cardId === cardId && payment.currency === currency && payment.cycleCutDate === cycleCutDate)
+    .reduce((total, payment) => total + payment.amount, 0);
+
+  return Math.max(spent - paid, 0);
+}
+
+function getExpenseCycleOptions(cards: CardPriority[], expenses: CardExpense[]): string[] {
+  const options = new Set<string>();
+  cards.forEach((card) => {
+    options.add(getDateInputValue(card.nextCutDate));
+    options.add(getDateInputValue(card.lastCutDate));
+  });
+  expenses.forEach((expense) => options.add(expense.cycleCutDate));
+
+  return Array.from(options).sort((first, second) => parseDateInput(second).getTime() - parseDateInput(first).getTime());
+}
+
+function getMonthInputValue(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function isSameMonthValue(dateValue: string, monthValue: string): boolean {
+  return dateValue.slice(0, 7) === monthValue;
+}
+
+function formatMonthLabel(monthValue: string): string {
+  const [year, month] = monthValue.split('-').map(Number);
+  return new Intl.DateTimeFormat('es-GT', { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1));
+}
+
 function buildPayableAgenda(
   cards: CardPriority[],
   payables: PayableAccount[],
@@ -3479,6 +4181,9 @@ function getPaymentTypeLabel(type: PaymentType): string {
 function hasCloudData(data: {
   balanceSnapshots: BalanceSnapshot[];
   cards: CreditCardAccount[];
+  expenseCategories?: ExpenseCategory[];
+  expensePayments?: ExpensePayment[];
+  expenses?: CardExpense[];
   installments: InstallmentPlan[];
   payablePayments: PayableAccountPayment[];
   payables: PayableAccount[];
@@ -3486,6 +4191,9 @@ function hasCloudData(data: {
 }): boolean {
   return (
     data.cards.length > 0 ||
+    (data.expenseCategories?.length ?? 0) > 0 ||
+    (data.expensePayments?.length ?? 0) > 0 ||
+    (data.expenses?.length ?? 0) > 0 ||
     data.payments.length > 0 ||
     data.installments.length > 0 ||
     data.balanceSnapshots.length > 0 ||

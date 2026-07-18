@@ -26,6 +26,27 @@ create table if not exists public.cardwise_balance_snapshots (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.cardwise_expense_categories (
+  id text primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  payload jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.cardwise_expenses (
+  id text primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  payload jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.cardwise_expense_payments (
+  id text primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  payload jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists public.cardwise_payables (
   id text primary key,
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -44,6 +65,9 @@ create index if not exists cardwise_cards_user_updated_idx on public.cardwise_ca
 create index if not exists cardwise_payments_user_updated_idx on public.cardwise_payments(user_id, updated_at desc);
 create index if not exists cardwise_installments_user_updated_idx on public.cardwise_installments(user_id, updated_at desc);
 create index if not exists cardwise_balance_snapshots_user_updated_idx on public.cardwise_balance_snapshots(user_id, updated_at desc);
+create index if not exists cardwise_expense_categories_user_updated_idx on public.cardwise_expense_categories(user_id, updated_at desc);
+create index if not exists cardwise_expenses_user_updated_idx on public.cardwise_expenses(user_id, updated_at desc);
+create index if not exists cardwise_expense_payments_user_updated_idx on public.cardwise_expense_payments(user_id, updated_at desc);
 create index if not exists cardwise_payables_user_updated_idx on public.cardwise_payables(user_id, updated_at desc);
 create index if not exists cardwise_payable_payments_user_updated_idx on public.cardwise_payable_payments(user_id, updated_at desc);
 
@@ -78,6 +102,21 @@ create trigger set_cardwise_balance_snapshots_updated_at
 before update on public.cardwise_balance_snapshots
 for each row execute function public.set_cardwise_updated_at();
 
+drop trigger if exists set_cardwise_expense_categories_updated_at on public.cardwise_expense_categories;
+create trigger set_cardwise_expense_categories_updated_at
+before update on public.cardwise_expense_categories
+for each row execute function public.set_cardwise_updated_at();
+
+drop trigger if exists set_cardwise_expenses_updated_at on public.cardwise_expenses;
+create trigger set_cardwise_expenses_updated_at
+before update on public.cardwise_expenses
+for each row execute function public.set_cardwise_updated_at();
+
+drop trigger if exists set_cardwise_expense_payments_updated_at on public.cardwise_expense_payments;
+create trigger set_cardwise_expense_payments_updated_at
+before update on public.cardwise_expense_payments
+for each row execute function public.set_cardwise_updated_at();
+
 drop trigger if exists set_cardwise_payables_updated_at on public.cardwise_payables;
 create trigger set_cardwise_payables_updated_at
 before update on public.cardwise_payables
@@ -92,6 +131,9 @@ alter table public.cardwise_cards enable row level security;
 alter table public.cardwise_payments enable row level security;
 alter table public.cardwise_installments enable row level security;
 alter table public.cardwise_balance_snapshots enable row level security;
+alter table public.cardwise_expense_categories enable row level security;
+alter table public.cardwise_expenses enable row level security;
+alter table public.cardwise_expense_payments enable row level security;
 alter table public.cardwise_payables enable row level security;
 alter table public.cardwise_payable_payments enable row level security;
 
@@ -100,6 +142,9 @@ grant select, insert, update, delete on public.cardwise_cards to authenticated;
 grant select, insert, update, delete on public.cardwise_payments to authenticated;
 grant select, insert, update, delete on public.cardwise_installments to authenticated;
 grant select, insert, update, delete on public.cardwise_balance_snapshots to authenticated;
+grant select, insert, update, delete on public.cardwise_expense_categories to authenticated;
+grant select, insert, update, delete on public.cardwise_expenses to authenticated;
+grant select, insert, update, delete on public.cardwise_expense_payments to authenticated;
 grant select, insert, update, delete on public.cardwise_payables to authenticated;
 grant select, insert, update, delete on public.cardwise_payable_payments to authenticated;
 
@@ -130,6 +175,30 @@ with check (auth.uid() = user_id);
 drop policy if exists "cardwise_balance_snapshots_owner_all" on public.cardwise_balance_snapshots;
 create policy "cardwise_balance_snapshots_owner_all"
 on public.cardwise_balance_snapshots
+for all
+to authenticated
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+drop policy if exists "cardwise_expense_categories_owner_all" on public.cardwise_expense_categories;
+create policy "cardwise_expense_categories_owner_all"
+on public.cardwise_expense_categories
+for all
+to authenticated
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+drop policy if exists "cardwise_expenses_owner_all" on public.cardwise_expenses;
+create policy "cardwise_expenses_owner_all"
+on public.cardwise_expenses
+for all
+to authenticated
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+drop policy if exists "cardwise_expense_payments_owner_all" on public.cardwise_expense_payments;
+create policy "cardwise_expense_payments_owner_all"
+on public.cardwise_expense_payments
 for all
 to authenticated
 using (auth.uid() = user_id)
