@@ -39,7 +39,8 @@ import {
   sendPasswordReset,
   signInToCloud,
   signOutFromCloud,
-  signUpToCloud
+  signUpToCloud,
+  updateCloudPassword
 } from '../lib/storage/cloudStorage';
 import {
   localBalanceSnapshotsStorage,
@@ -305,6 +306,7 @@ function App() {
   const [cloudStatus, setCloudStatus] = useState<CloudSyncStatus>(isSupabaseConfigured ? 'signed-out' : 'disabled');
   const [cloudMessage, setCloudMessage] = useState('');
   const [cloudReady, setCloudReady] = useState(!isSupabaseConfigured);
+  const [passwordRecoveryOpen, setPasswordRecoveryOpen] = useState(false);
   const priorityCards = useMemo(() => buildPriorityRanking(cards, new Date()), [cards]);
   const selectedCard = priorityCards.find((card) => card.id === selectedCardId) ?? null;
   const topCard = priorityCards[0];
@@ -366,8 +368,12 @@ function App() {
 
     void bootstrapCloud();
 
-    const authListener = supabase?.auth.onAuthStateChange((_event, session) => {
+    const authListener = supabase?.auth.onAuthStateChange((event, session) => {
       const user = session?.user;
+      if (event === 'PASSWORD_RECOVERY') {
+        setPasswordRecoveryOpen(true);
+        setCloudMessage('Ingresa una nueva contrasena para terminar la recuperacion.');
+      }
       setCloudUserEmail(user?.email ?? null);
       setCloudStatus(user ? 'syncing' : 'signed-out');
       setCloudReady(!user);
@@ -771,6 +777,21 @@ function App() {
     }
   }
 
+  async function handlePasswordUpdate(password: string) {
+    setCloudStatus('syncing');
+    setCloudMessage('');
+    try {
+      await updateCloudPassword(password);
+      setPasswordRecoveryOpen(false);
+      setCloudStatus('synced');
+      setCloudMessage('Contrasena actualizada. Ya puedes usar CardWise.');
+    } catch (error) {
+      setCloudStatus('error');
+      setCloudMessage(getErrorMessage(error));
+      throw error;
+    }
+  }
+
   if (isAuthRequired && !cloudUserEmail) {
     return (
       <main className="min-h-dvh bg-slate-950 px-5 py-8 text-white">
@@ -791,6 +812,7 @@ function App() {
             onSignUp={handleCloudSignUp}
           />
         </section>
+        {passwordRecoveryOpen ? <PasswordRecoveryForm onSave={handlePasswordUpdate} /> : null}
       </main>
     );
   }
@@ -993,6 +1015,8 @@ function App() {
           onUpdateBalance={openBalanceForm}
         />
       ) : null}
+
+      {passwordRecoveryOpen ? <PasswordRecoveryForm onSave={handlePasswordUpdate} /> : null}
     </main>
   );
 }
@@ -1200,6 +1224,82 @@ function CloudSyncPanel({
         </div>
       ) : null}
     </section>
+  );
+}
+
+function PasswordRecoveryForm({ onSave }: { onSave: (password: string) => Promise<void> }) {
+  const [password, setPassword] = useState('');
+  const [confirmation, setConfirmation] = useState('');
+  const [message, setMessage] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage('');
+
+    if (password.length < 8) {
+      setMessage('Usa una contrasena de al menos 8 caracteres.');
+      return;
+    }
+
+    if (password !== confirmation) {
+      setMessage('Las contrasenas no coinciden.');
+      return;
+    }
+
+    try {
+      setSaving(true);
+      await onSave(password);
+      setPassword('');
+      setConfirmation('');
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-30 bg-slate-950/70 px-4 py-6 backdrop-blur-sm">
+      <div className="mx-auto flex max-h-full w-full max-w-md flex-col rounded-lg bg-white shadow-2xl">
+        <div className="border-b border-slate-200 px-4 py-4">
+          <h2 className="text-lg font-semibold text-slate-950">Nueva contrasena</h2>
+          <p className="mt-1 text-sm text-slate-500">Completa la recuperacion para volver a entrar a CardWise.</p>
+        </div>
+
+        <form className="grid gap-3 px-4 py-4" onSubmit={handleSubmit}>
+          <label className="grid gap-1 text-sm font-medium text-slate-700">
+            Contrasena nueva
+            <input
+              className="h-11 rounded-md border border-slate-300 px-3 text-base text-slate-950 outline-none focus:border-teal-700"
+              minLength={8}
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              required
+            />
+          </label>
+
+          <label className="grid gap-1 text-sm font-medium text-slate-700">
+            Confirmar contrasena
+            <input
+              className="h-11 rounded-md border border-slate-300 px-3 text-base text-slate-950 outline-none focus:border-teal-700"
+              minLength={8}
+              type="password"
+              value={confirmation}
+              onChange={(event) => setConfirmation(event.target.value)}
+              required
+            />
+          </label>
+
+          {message ? <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{message}</p> : null}
+
+          <button className="h-12 rounded-md bg-slate-950 font-semibold text-white disabled:bg-slate-300" disabled={saving} type="submit">
+            {saving ? 'Guardando...' : 'Guardar contrasena'}
+          </button>
+        </form>
+      </div>
+    </div>
   );
 }
 

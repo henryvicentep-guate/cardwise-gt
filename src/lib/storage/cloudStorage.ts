@@ -73,6 +73,13 @@ export async function sendPasswordReset(email: string) {
   if (error) throw error;
 }
 
+export async function updateCloudPassword(password: string) {
+  if (!supabase) throw new Error('Supabase no esta configurado.');
+
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) throw error;
+}
+
 export async function signOutFromCloud() {
   if (!supabase) return;
 
