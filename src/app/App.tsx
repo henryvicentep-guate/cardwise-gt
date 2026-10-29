@@ -17,7 +17,8 @@ import {
 } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import type { BalanceSnapshot } from '../features/balances/types';
-import { buildPriorityRanking, getLastCutDate, getNextCutDate } from '../features/cards/priority';
+import { buildPriorityRanking, getCardPaymentDueDate, getLastCutDate, getNextCutDate, sortCardsForDisplay } from '../features/cards/priority';
+import type { CardSortOrder } from '../features/cards/priority';
 import type { CardPriority, CreditCardAccount, Currency } from '../features/cards/types';
 import type { CardExpense, ExpenseCategory, ExpensePayment } from '../features/expenses/types';
 import type { InstallmentPlan } from '../features/installments/types';
@@ -308,7 +309,19 @@ function App() {
   const [cloudMessage, setCloudMessage] = useState('');
   const [cloudReady, setCloudReady] = useState(!isSupabaseConfigured);
   const [passwordRecoveryOpen, setPasswordRecoveryOpen] = useState(false);
-  const priorityCards = useMemo(() => buildPriorityRanking(cards, new Date()), [cards]);
+  const [calendarDay, setCalendarDay] = useState(() => getDateInputValue(new Date()));
+  useEffect(() => {
+    const refreshDay = () => setCalendarDay(getDateInputValue(new Date()));
+    const timer = window.setInterval(refreshDay, 30_000);
+    window.addEventListener('focus', refreshDay);
+    document.addEventListener('visibilitychange', refreshDay);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refreshDay);
+      document.removeEventListener('visibilitychange', refreshDay);
+    };
+  }, []);
+  const priorityCards = useMemo(() => buildPriorityRanking(cards, parseDateInput(calendarDay)), [cards, calendarDay]);
   const selectedCard = priorityCards.find((card) => card.id === selectedCardId) ?? null;
   const topCard = priorityCards[0];
 
@@ -1029,13 +1042,13 @@ function BestCardPanel({ card }: { card: CardPriority }) {
     <div className="mt-6 rounded-lg bg-white p-4 text-slate-950 shadow-xl shadow-slate-950/20">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-sm font-medium text-slate-500">Mejor opcion</p>
+          <p className="text-sm font-medium text-slate-500">Mejor opcion para nuevas compras</p>
           <h2 className="mt-1 text-xl font-semibold">{card.alias}</h2>
           <p className="text-sm text-slate-500">{card.bank} · {formatCurrencyList(card.currencies)}</p>
         </div>
         <div className="text-right">
           <p className="text-4xl font-bold text-teal-700">{card.availableDays}</p>
-          <p className="text-xs font-semibold uppercase text-slate-500">dias</p>
+          <p className="text-xs font-semibold uppercase text-slate-500">dias hasta el pago estimado</p>
         </div>
       </div>
       <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
@@ -1333,20 +1346,40 @@ function CardsView({
   onSelectCard: (cardId: string) => void;
   onUpdateBalance: (cardId: string) => void;
 }) {
+  const [sortOrder, setSortOrder] = useState<CardSortOrder>('estimated-payment');
+  const sortedCards = sortCardsForDisplay(cards, sortOrder);
+
   return (
     <section className="flex-1 px-4 pb-24 pt-5">
       <div className="mb-4 flex items-end justify-between">
         <div>
-          <h2 className="text-lg font-semibold">Ranking de prioridad</h2>
-          <p className="text-sm text-slate-500">Ordenado por dias disponibles sin interes.</p>
+          <h2 className="text-lg font-semibold">Mis tarjetas</h2>
+          <p className="text-sm text-slate-500">
+            {sortOrder === 'estimated-payment'
+              ? 'Mayor plazo estimado para nuevas compras primero.'
+              : 'Pagos vencidos primero, luego los vencimientos mas cercanos.'}
+          </p>
         </div>
         <span className="rounded-full bg-teal-100 px-3 py-1 text-xs font-semibold text-teal-800">
           {cards.length} activas
         </span>
       </div>
 
+      <label className="mb-4 flex flex-col gap-1 text-sm font-medium text-slate-700">
+        Ordenar tarjetas
+        <select
+          className="h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-base text-slate-950 outline-none focus:border-teal-700"
+          value={sortOrder}
+          onChange={(event) => setSortOrder(event.target.value as CardSortOrder)}
+        >
+          <option value="estimated-payment">Mayor plazo estimado para comprar</option>
+          <option value="payment-due">Pago mas proximo</option>
+        </select>
+      </label>
+      <p className="mb-3 text-xs text-slate-500">El contador de cada ficha indica los dias para pagar el saldo actual.</p>
+
       <div className="space-y-3">
-        {cards.map((card) => (
+        {sortedCards.map((card) => (
           <PriorityCard
             key={card.id}
             card={card}
@@ -1409,7 +1442,7 @@ function PriorityCard({
           ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <UrgencyBadge level={card.urgencyLevel} />
+          <PaymentDueBadge days={card.daysUntilPayment} />
           <button
             className="grid size-8 place-items-center rounded-md bg-slate-100 text-slate-700"
             aria-label={`Editar ${card.alias}`}
@@ -1431,8 +1464,10 @@ function PriorityCard({
           <DatePill label="Pagar antes" value={formatShortDate(getCardPaymentDueDate(card))} />
         </div>
         <div className="text-right">
-          <p className="text-3xl font-bold text-slate-950">{card.availableDays}</p>
-          <p className="text-xs font-semibold uppercase text-slate-500">dias</p>
+          <p className="text-3xl font-bold text-slate-950">{Math.abs(card.daysUntilPayment)}</p>
+          <p className="text-xs font-semibold uppercase text-slate-500">
+            {card.daysUntilPayment < 0 ? 'dias vencido' : card.daysUntilPayment === 0 ? 'vence hoy' : 'dias para pagar'}
+          </p>
         </div>
       </div>
 
@@ -1739,22 +1774,10 @@ function CardDetailPanel({
   );
 }
 
-function UrgencyBadge({ level }: { level: CardPriority['urgencyLevel'] }) {
-  const styles = {
-    high: 'bg-emerald-100 text-emerald-800',
-    medium: 'bg-amber-100 text-amber-800',
-    low: 'bg-orange-100 text-orange-800',
-    urgent: 'bg-red-100 text-red-800'
-  };
-
-  const labels = {
-    high: 'Alta',
-    medium: 'Media',
-    low: 'Baja',
-    urgent: 'Urgente'
-  };
-
-  return <span className={`rounded-full px-3 py-1 text-xs font-semibold ${styles[level]}`}>{labels[level]}</span>;
+function PaymentDueBadge({ days }: { days: number }) {
+  const style = days <= 0 ? 'bg-red-100 text-red-800' : days <= 7 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800';
+  const label = days < 0 ? 'Vencido' : days === 0 ? 'Vence hoy' : days <= 7 ? 'Pago proximo' : 'Por vencer';
+  return <span className={`rounded-full px-3 py-1 text-xs font-semibold ${style}`}>{label}</span>;
 }
 
 function InstallmentItem({
@@ -3902,12 +3925,6 @@ function createLocalId(): string {
 
 function getCardBalance(card: CreditCardAccount, currency: Currency): number {
   return card.currentBalances[currency] ?? 0;
-}
-
-function getCardPaymentDueDate(card: CreditCardAccount | CardPriority): Date {
-  if (card.paymentDueDate) return parseDateInput(card.paymentDueDate);
-  if ('nextPaymentDate' in card) return card.nextPaymentDate;
-  return parseDateInput(getEstimatedPaymentDueDateInput(String(card.cutDay), String(card.graceDays)));
 }
 
 function getEstimatedPaymentDueDateInput(cutDay: string, graceDays: string): string {

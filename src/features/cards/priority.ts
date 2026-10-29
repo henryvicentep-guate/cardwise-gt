@@ -9,12 +9,33 @@ export function buildPriorityRanking(cards: CreditCardAccount[], today = new Dat
     .sort((a, b) => b.availableDays - a.availableDays);
 }
 
+export type CardSortOrder = 'estimated-payment' | 'payment-due';
+
+export function sortCardsForDisplay(cards: CardPriority[], order: CardSortOrder = 'estimated-payment'): CardPriority[] {
+  return [...cards].sort((a, b) => {
+    const dateDifference = order === 'payment-due'
+      ? a.paymentDeadline.getTime() - b.paymentDeadline.getTime()
+      : b.nextPaymentDate.getTime() - a.nextPaymentDate.getTime();
+    return dateDifference || a.alias.localeCompare(b.alias, 'es');
+  });
+}
+
+export function getCardPaymentDueDate(card: CreditCardAccount, today = new Date()): Date {
+  if (card.paymentDueDate) {
+    const [year, month, day] = card.paymentDueDate.split('-').map(Number);
+    return new Date(year, month - 1, day);
+  }
+  return addDays(getNextCutDate(today, card.cutDay), card.graceDays);
+}
+
 export function buildCardPriority(card: CreditCardAccount, today = new Date()): CardPriority {
   const lastCutDate = getLastCutDate(today, card.cutDay);
   const nextCutDate = getNextCutDate(today, card.cutDay);
   const nextPaymentDate = addDays(nextCutDate, card.graceDays);
   const daysSinceLastCut = diffInCalendarDays(lastCutDate, today);
   const availableDays = diffInCalendarDays(today, nextPaymentDate);
+  const paymentDeadline = getCardPaymentDueDate(card, today);
+  const daysUntilPayment = diffInCalendarDays(today, paymentDeadline);
 
   return {
     ...card,
@@ -23,6 +44,8 @@ export function buildCardPriority(card: CreditCardAccount, today = new Date()): 
     nextPaymentDate,
     daysSinceLastCut,
     availableDays,
+    paymentDeadline,
+    daysUntilPayment,
     urgencyLevel: getUrgencyLevel(availableDays)
   };
 }
@@ -71,7 +94,8 @@ function addDays(date: Date, days: number): Date {
 }
 
 function diffInCalendarDays(start: Date, end: Date): number {
-  return Math.ceil((stripTime(end).getTime() - stripTime(start).getTime()) / MS_PER_DAY);
+  const calendarDay = (date: Date) => Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+  return (calendarDay(end) - calendarDay(start)) / MS_PER_DAY;
 }
 
 function buildDateClamped(year: number, month: number, preferredDay: number): Date {

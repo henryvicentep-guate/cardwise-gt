@@ -27,5 +27,7 @@ export type CardPriority = CreditCardAccount & {
   nextPaymentDate: Date;
   daysSinceLastCut: number;
   availableDays: number;
+  paymentDeadline: Date;
+  daysUntilPayment: number;
   urgencyLevel: UrgencyLevel;
 };
