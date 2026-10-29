@@ -21,3 +21,12 @@ body {
 button {
   font: inherit;
 }
+
+.commitments-dialog::backdrop { background: rgb(2 6 23 / 65%); backdrop-filter: blur(3px); }
+@keyframes commitment-attention {
+  0%, 65%, 100% { transform: rotate(0); }
+  74% { transform: rotate(-2deg); }
+  86% { transform: rotate(2deg); }
+}
+.commitment-attention { animation: commitment-attention 3s ease-in-out infinite; transform-origin: center; }
+@media (prefers-reduced-motion: reduce) { .commitment-attention { animation: none; } }

@@ -11,9 +11,10 @@ export type InstallmentPlan = {
   monthlyPayment: number;
   totalInstallments: number;
   paidInstallments: number;
-  startDate: string;
+  startDate?: string;
   lastAppliedCutDate?: string;
   status?: InstallmentPlanStatus;
   closedAt?: string;
+  closureReason?: 'settled' | 'removed' | 'completed';
   createdAt: string;
 };

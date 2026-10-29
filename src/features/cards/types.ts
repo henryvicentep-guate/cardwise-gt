@@ -10,6 +10,8 @@ export type CreditCardAccount = {
   primaryCurrency: Currency;
   creditLimits: CurrencyAmounts;
   benefitsDescription?: string;
+  notes?: string;
+  avoidNewInstallments?: boolean;
   annualInterestRate: number;
   cutDay: number;
   graceDays: number;

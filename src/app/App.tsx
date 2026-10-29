@@ -1,4 +1,5 @@
 import {
+  TriangleAlert,
   Banknote,
   ChevronDown,
   ClipboardList,
@@ -22,6 +23,8 @@ import type { CardSortOrder } from '../features/cards/priority';
 import type { CardPriority, CreditCardAccount, Currency } from '../features/cards/types';
 import type { CardExpense, ExpenseCategory, ExpensePayment } from '../features/expenses/types';
 import type { InstallmentPlan } from '../features/installments/types';
+import { applyAutomaticInstallmentProgress, isInstallmentActive, summarizeInstallments } from '../features/installments/progress';
+import { CardCommitmentsModal } from '../features/installments/CardCommitmentsModal';
 import type {
   PayableAccount,
   PayableAccountPayment,
@@ -203,77 +206,6 @@ function loadCurrentInstallments(cards: CreditCardAccount[]): InstallmentPlan[] 
   return currentInstallments;
 }
 
-function applyAutomaticInstallmentProgress(
-  installments: InstallmentPlan[],
-  cards: CreditCardAccount[],
-  today: Date
-): InstallmentPlan[] {
-  let changed = false;
-
-  const nextInstallments = installments.map((plan) => {
-    if (!isInstallmentActive(plan)) return plan;
-
-    const card = cards.find((item) => item.id === plan.cardId);
-    if (!card) return plan;
-
-    const progress = getInstallmentCutProgress(plan, card, today);
-    if (!progress.shouldUpdate) return plan;
-
-    changed = true;
-    return {
-      ...plan,
-      lastAppliedCutDate: progress.lastAppliedCutDate,
-      paidInstallments: Math.min(plan.paidInstallments + progress.installmentsToApply, plan.totalInstallments)
-    };
-  });
-
-  return changed ? nextInstallments : installments;
-}
-
-function getInstallmentCutProgress(plan: InstallmentPlan, card: CreditCardAccount, today: Date) {
-  const latestCutDate = getLastCutDate(today, card.cutDay);
-
-  if (!plan.lastAppliedCutDate) {
-    return {
-      installmentsToApply: 0,
-      lastAppliedCutDate: getDateInputValue(latestCutDate),
-      shouldUpdate: true
-    };
-  }
-
-  if (plan.paidInstallments >= plan.totalInstallments) {
-    return {
-      installmentsToApply: 0,
-      lastAppliedCutDate: plan.lastAppliedCutDate,
-      shouldUpdate: false
-    };
-  }
-
-  const startDate = parseDateInput(plan.startDate);
-  const lastAppliedDate = parseDateInput(plan.lastAppliedCutDate);
-  let cutCursor = getNextCutDate(addCalendarDays(lastAppliedDate, 1), card.cutDay);
-  let lastProcessedCutDate = lastAppliedDate;
-  let installmentsToApply = 0;
-
-  while (cutCursor.getTime() <= latestCutDate.getTime() && plan.paidInstallments + installmentsToApply < plan.totalInstallments) {
-    if (cutCursor.getTime() >= startDate.getTime()) {
-      installmentsToApply += 1;
-    }
-
-    lastProcessedCutDate = cutCursor;
-    cutCursor = getNextCutDate(addCalendarDays(cutCursor, 1), card.cutDay);
-  }
-
-  return {
-    installmentsToApply,
-    lastAppliedCutDate: getDateInputValue(lastProcessedCutDate),
-    shouldUpdate: installmentsToApply > 0 || lastProcessedCutDate.getTime() !== lastAppliedDate.getTime()
-  };
-}
-
-function isInstallmentActive(plan: InstallmentPlan): boolean {
-  return plan.status !== 'closed' && plan.paidInstallments < plan.totalInstallments;
-}
 
 function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('cards');
@@ -303,6 +235,8 @@ function App() {
   const [editingInstallment, setEditingInstallment] = useState<InstallmentPlan | null>(null);
   const [mergeCardId, setMergeCardId] = useState<string | null>(null);
   const [mergeFormOpen, setMergeFormOpen] = useState(false);
+  const [commitmentsCardId, setCommitmentsCardId] = useState<string | null>(null);
+  const [reviewedCommitments, setReviewedCommitments] = useState<string[]>([]);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [cloudUserEmail, setCloudUserEmail] = useState<string | null>(null);
   const [cloudStatus, setCloudStatus] = useState<CloudSyncStatus>(isSupabaseConfigured ? 'signed-out' : 'disabled');
@@ -311,7 +245,14 @@ function App() {
   const [passwordRecoveryOpen, setPasswordRecoveryOpen] = useState(false);
   const [calendarDay, setCalendarDay] = useState(() => getDateInputValue(new Date()));
   useEffect(() => {
-    const refreshDay = () => setCalendarDay(getDateInputValue(new Date()));
+    const refreshDay = () => {
+      setCalendarDay(getDateInputValue(new Date()));
+      if (cloudReady) setInstallments((current) => {
+        const next = applyAutomaticInstallmentProgress(current, cards, new Date());
+        if (next !== current) localInstallmentsStorage.save(next);
+        return next;
+      });
+    };
     const timer = window.setInterval(refreshDay, 30_000);
     window.addEventListener('focus', refreshDay);
     document.addEventListener('visibilitychange', refreshDay);
@@ -320,10 +261,11 @@ function App() {
       window.removeEventListener('focus', refreshDay);
       document.removeEventListener('visibilitychange', refreshDay);
     };
-  }, []);
+  }, [cards, cloudReady]);
   const priorityCards = useMemo(() => buildPriorityRanking(cards, parseDateInput(calendarDay)), [cards, calendarDay]);
   const selectedCard = priorityCards.find((card) => card.id === selectedCardId) ?? null;
   const topCard = priorityCards[0];
+  const commitmentsCard = priorityCards.find((card) => card.id === commitmentsCardId);
 
   useEffect(() => {
     let mounted = true;
@@ -353,8 +295,8 @@ function App() {
           localCardsStorage.save(cloudData.cards);
           setPayments(cloudData.payments);
           localPaymentsStorage.save(cloudData.payments);
-          setInstallments(cloudData.installments);
-          localInstallmentsStorage.save(cloudData.installments);
+          setInstallments(applyAutomaticInstallmentProgress(cloudData.installments, cloudData.cards, new Date()));
+          localInstallmentsStorage.save(applyAutomaticInstallmentProgress(cloudData.installments, cloudData.cards, new Date()));
           setBalanceSnapshots(cloudData.balanceSnapshots);
           localBalanceSnapshotsStorage.save(cloudData.balanceSnapshots);
           setExpenseCategories(cloudData.expenseCategories.length > 0 ? cloudData.expenseCategories : localExpenseCategoriesStorage.load());
@@ -400,8 +342,8 @@ function App() {
             localCardsStorage.save(cloudData.cards);
             setPayments(cloudData.payments);
             localPaymentsStorage.save(cloudData.payments);
-            setInstallments(cloudData.installments);
-            localInstallmentsStorage.save(cloudData.installments);
+            setInstallments(applyAutomaticInstallmentProgress(cloudData.installments, cloudData.cards, new Date()));
+            localInstallmentsStorage.save(applyAutomaticInstallmentProgress(cloudData.installments, cloudData.cards, new Date()));
             setBalanceSnapshots(cloudData.balanceSnapshots);
             localBalanceSnapshotsStorage.save(cloudData.balanceSnapshots);
             setExpenseCategories(cloudData.expenseCategories.length > 0 ? cloudData.expenseCategories : localExpenseCategoriesStorage.load());
@@ -647,6 +589,7 @@ function App() {
       return {
         ...plan,
         closedAt: new Date().toISOString(),
+        closureReason: 'settled' as const,
         status: 'closed' as const
       };
     });
@@ -655,7 +598,9 @@ function App() {
   }
 
   function handleDeleteInstallment(planId: string) {
-    saveInstallments(installments.filter((plan) => plan.id !== planId));
+    saveInstallments(installments.map((plan) => plan.id === planId
+      ? { ...plan, status: 'closed' as const, closureReason: 'removed' as const, closedAt: new Date().toISOString() }
+      : plan));
   }
 
   function handleSavePayable(payable: PayableAccount) {
@@ -866,6 +811,12 @@ function App() {
         {activeTab === 'cards' ? (
           <CardsView
             cards={priorityCards}
+            installments={installments}
+            reviewedCommitments={reviewedCommitments}
+            onOpenCommitments={(cardId) => {
+              setCommitmentsCardId(cardId);
+              setReviewedCommitments((current) => [...current, cardId]);
+            }}
             onDeactivate={handleDeactivate}
             onEdit={openEditForm}
             onRegisterPayment={openPaymentForm}
@@ -927,6 +878,19 @@ function App() {
             setPaymentCardId(null);
           }}
           onSave={handlePayment}
+        />
+      ) : null}
+
+      {commitmentsCard && !installmentFormOpen ? (
+        <CardCommitmentsModal
+          card={commitmentsCard}
+          installments={installments.filter((plan) => plan.cardId === commitmentsCard.id)}
+          onClose={() => setCommitmentsCardId(null)}
+          onSaveNotes={(notes, avoidNewInstallments) => saveCards(cards.map((card) => card.id === commitmentsCard.id ? { ...card, notes, avoidNewInstallments } : card))}
+          onAdd={() => openInstallmentForm(commitmentsCard.id)}
+          onEdit={(plan) => openInstallmentForm(commitmentsCard.id, plan)}
+          onSettle={handleCloseInstallment}
+          onRemove={handleDeleteInstallment}
         />
       ) : null}
 
@@ -1051,6 +1015,7 @@ function BestCardPanel({ card }: { card: CardPriority }) {
           <p className="text-xs font-semibold uppercase text-slate-500">dias hasta el pago estimado</p>
         </div>
       </div>
+      {card.avoidNewInstallments ? <p className="mt-3 flex items-center gap-2 rounded-lg bg-red-700 p-3 text-sm font-semibold text-white"><TriangleAlert size={18} className="shrink-0" />Evitar nuevas cuotas en esta tarjeta</p> : null}
       <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
         <DatePill label="Ultimo corte" value={formatShortDate(card.lastCutDate)} />
         <DatePill label="Eso fue hace" value={formatElapsedDays(card.daysSinceLastCut)} />
@@ -1333,6 +1298,9 @@ function PasswordRecoveryForm({ onSave }: { onSave: (password: string) => Promis
 
 function CardsView({
   cards,
+  installments,
+  reviewedCommitments,
+  onOpenCommitments,
   onDeactivate,
   onEdit,
   onRegisterPayment,
@@ -1340,6 +1308,9 @@ function CardsView({
   onUpdateBalance
 }: {
   cards: CardPriority[];
+  installments: InstallmentPlan[];
+  reviewedCommitments: string[];
+  onOpenCommitments: (cardId: string) => void;
   onDeactivate: (cardId: string) => void;
   onEdit: (card: CreditCardAccount) => void;
   onRegisterPayment: (cardId: string) => void;
@@ -1387,6 +1358,9 @@ function CardsView({
           <PriorityCard
             key={card.id}
             card={card}
+            installments={installments.filter((plan) => plan.cardId === card.id)}
+            reviewed={reviewedCommitments.includes(card.id)}
+            onOpenCommitments={onOpenCommitments}
             sortOrder={sortOrder}
             onDeactivate={onDeactivate}
             onEdit={onEdit}
@@ -1402,6 +1376,9 @@ function CardsView({
 
 function PriorityCard({
   card,
+  installments,
+  reviewed,
+  onOpenCommitments,
   sortOrder,
   onDeactivate,
   onEdit,
@@ -1410,6 +1387,9 @@ function PriorityCard({
   onUpdateBalance
 }: {
   card: CardPriority;
+  installments: InstallmentPlan[];
+  reviewed: boolean;
+  onOpenCommitments: (cardId: string) => void;
   sortOrder: CardSortOrder;
   onDeactivate: (cardId: string) => void;
   onEdit: (card: CreditCardAccount) => void;
@@ -1417,6 +1397,9 @@ function PriorityCard({
   onSelect: (cardId: string) => void;
   onUpdateBalance: (cardId: string) => void;
 }) {
+  const totals = summarizeInstallments(installments);
+  const hasNotes = Boolean(card.notes?.trim());
+  const warning = card.avoidNewInstallments;
   return (
     <article
       className="rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm"
@@ -1424,7 +1407,7 @@ function PriorityCard({
       tabIndex={0}
       onClick={() => onSelect(card.id)}
       onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
+        if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
           event.preventDefault();
           onSelect(card.id);
         }
@@ -1448,8 +1431,9 @@ function PriorityCard({
             </p>
           ) : null}
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <PaymentDueBadge days={card.daysUntilPayment} />
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <div className="flex items-center gap-2">
+            <PaymentDueBadge days={card.daysUntilPayment} />
           <button
             className="grid size-8 place-items-center rounded-md bg-slate-100 text-slate-700"
             aria-label={`Editar ${card.alias}`}
@@ -1460,6 +1444,17 @@ function PriorityCard({
           >
             <Pencil size={16} />
           </button>
+          </div>
+          <button
+            className={`max-w-[160px] rounded-lg px-3 py-2 text-right text-xs font-semibold ${warning ? 'bg-red-700 text-white ring-2 ring-red-200' : 'bg-teal-50 text-teal-950 ring-1 ring-teal-200'} ${warning && !reviewed ? 'commitment-attention' : ''}`}
+            aria-label={`Notas y cuotas de ${card.alias}${warning ? ': evitar nuevas cuotas' : ''}`}
+            onClick={(event) => { event.stopPropagation(); onOpenCommitments(card.id); }}
+          >
+            <span className="flex items-center justify-end gap-1">{warning ? <TriangleAlert size={16} /> : <ClipboardList size={16} />} Saldo en cuotas</span>
+            {totals.map((total) => <span key={total.currency} className="mt-1 block"><strong className="block text-sm">{formatCurrency(total.pending, total.currency)}</strong>{formatCurrency(total.monthly, total.currency)} al mes</span>)}
+            {warning ? <span className="mt-1 block">Evitar nuevas cuotas en esta tarjeta</span> : <span className="mt-1 block">{hasNotes ? 'Hay notas · Ver detalle' : 'Notas y detalle'}</span>}
+          </button>
+
         </div>
       </div>
 
@@ -1842,7 +1837,7 @@ function InstallmentItem({
         <div className="min-w-0">
           <h4 className="truncate font-semibold">{plan.description}</h4>
           <p className="mt-1 text-sm text-slate-500">
-            Inicio {formatShortDate(parseDateInput(plan.startDate))} · {paidInstallments}/{plan.totalInstallments} cuotas
+            {plan.startDate ? `Inicio ${formatShortDate(parseDateInput(plan.startDate))}` : 'Inicio no registrado'} · {paidInstallments}/{plan.totalInstallments} cuotas
           </p>
         </div>
         <div className="shrink-0 text-right">
@@ -1886,7 +1881,6 @@ function InstallmentItem({
 
 function ClosedInstallmentItem({
   currency,
-  onDeleteInstallment,
   plan
 }: {
   currency: Currency;
@@ -1903,14 +1897,12 @@ function ClosedInstallmentItem({
         <div className="min-w-0">
           <h5 className="truncate font-semibold text-slate-800">{plan.description}</h5>
           <p className="mt-1">
-            {paidInstallments}/{plan.totalInstallments} cuotas · pendiente {formatCurrency(pendingAmount, currency)}
+            {paidInstallments}/{plan.totalInstallments} cuotas · saldo al cerrar {formatCurrency(pendingAmount, currency)}
           </p>
         </div>
         <div className="shrink-0 text-right">
           <span className="rounded-full bg-white px-2 py-1 text-xs font-semibold text-slate-500">Cerrado</span>
-          <button className="mt-2 block text-xs font-semibold text-red-600" onClick={() => onDeleteInstallment(plan.id)}>
-            Eliminar
-          </button>
+
         </div>
       </div>
     </article>
@@ -3281,9 +3273,10 @@ function InstallmentForm({
           monthlyPayment: '',
           totalInstallments: '12',
           paidInstallments: '0',
-          startDate: getDateInputValue(new Date())
+          startDate: ''
         }
   );
+  const [error, setError] = useState('');
   const selectedCard = cards.find((card) => card.id === form.cardId);
 
   function updateField<Key extends keyof InstallmentFormState>(key: Key, value: InstallmentFormState[Key]) {
@@ -3294,21 +3287,27 @@ function InstallmentForm({
     event.preventDefault();
     if (!selectedCard) return;
 
-    const totalInstallments = clampNumber(parseAmount(form.totalInstallments), 1, 120);
-    const paidInstallments = clampNumber(parseAmount(form.paidInstallments), 0, totalInstallments);
+    const remaining = Number(form.totalInstallments);
+    const monthly = parseAmount(form.monthlyPayment);
+    if (!Number.isSafeInteger(remaining) || remaining < 1 || remaining > 1200 || !Number.isFinite(monthly) || monthly <= 0 || !form.description.trim()) {
+      setError('Ingresa una descripción, una cuota mayor que cero y entre 1 y 1,200 cuotas pendientes (número entero).');
+      return;
+    }
+    const paidInstallments = installment?.paidInstallments ?? 0;
+    const totalInstallments = paidInstallments + remaining;
 
     const plan: InstallmentPlan = {
       id: installment?.id ?? createLocalId(),
       cardId: selectedCard.id,
       currency: form.currency,
       description: form.description.trim(),
-      totalAmount: parseAmount(form.totalAmount),
+      totalAmount: Math.round(monthly * totalInstallments * 100) / 100,
       monthlyPayment: parseAmount(form.monthlyPayment),
       totalInstallments,
       paidInstallments,
-      startDate: form.startDate,
-      lastAppliedCutDate: installment?.lastAppliedCutDate ?? getDateInputValue(getLastCutDate(new Date(), selectedCard.cutDay)),
-      status: installment?.status ?? 'active',
+      startDate: form.startDate || undefined,
+      lastAppliedCutDate: getDateInputValue(getLastCutDate(new Date(), selectedCard.cutDay)),
+      status: 'active',
       closedAt: installment?.closedAt,
       createdAt: installment?.createdAt ?? new Date().toISOString()
     };
@@ -3317,10 +3316,10 @@ function InstallmentForm({
   }
 
   return (
-    <div className="fixed inset-0 z-20 bg-slate-950/60 px-4 py-6 backdrop-blur-sm">
+    <div className="fixed inset-0 z-40 bg-slate-950/60 px-4 py-6 backdrop-blur-sm">
       <div className="mx-auto flex max-h-full w-full max-w-md flex-col rounded-lg bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-          <h2 className="text-lg font-semibold">{installment ? 'Editar extrafinanciamiento' : 'Nuevo extrafinanciamiento'}</h2>
+          <h2 className="text-lg font-semibold">{installment ? 'Editar financiamiento' : 'Nuevo financiamiento'}</h2>
           <button className="grid size-9 place-items-center rounded-md bg-slate-100 text-slate-700" aria-label="Cerrar formulario" onClick={onClose}>
             <X size={18} />
           </button>
@@ -3357,18 +3356,10 @@ function InstallmentForm({
 
             <TextField label="Descripcion" value={form.description} onChange={(value) => updateField('description', value)} required />
 
-            <div className="grid grid-cols-2 gap-3">
-              <TextField label="Monto total" type="number" value={form.totalAmount} onChange={(value) => updateField('totalAmount', value)} required />
-              <TextField label="Cuota mensual" type="number" value={form.monthlyPayment} onChange={(value) => updateField('monthlyPayment', value)} required />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <TextField label="Cuotas" type="number" value={form.totalInstallments} onChange={(value) => updateField('totalInstallments', value)} required />
-              <TextField label="Pagadas" type="number" value={form.paidInstallments} onChange={(value) => updateField('paidInstallments', value)} required />
-              <div className="col-span-2">
-                <TextField label="Inicio" type="date" value={form.startDate} onChange={(value) => updateField('startDate', value)} required />
-              </div>
-            </div>
+            <TextField label="Monto de la cuota" type="number" value={form.monthlyPayment} onChange={(value) => updateField('monthlyPayment', value)} required />
+            <TextField label="Cuotas pendientes" type="number" value={form.totalInstallments} onChange={(value) => updateField('totalInstallments', value)} required />
+            <TextField label="Fecha de inicio (opcional)" type="date" value={form.startDate} onChange={(value) => updateField('startDate', value)} />
+            <p className="text-sm text-slate-600">Ingresa las cuotas pendientes a hoy. Se descontará una en cada próximo corte, aunque falten pocos días. Si registras hoy y hoy es el corte, comenzará el próximo mes.</p>
 
             {selectedCard ? (
               <div className="rounded-md bg-slate-100 px-3 py-2 text-sm text-slate-600">
@@ -3377,6 +3368,7 @@ function InstallmentForm({
             ) : null}
           </div>
 
+          {error ? <p role="alert" className="mt-3 text-sm text-red-700">{error}</p> : null}
           <div className="mt-5 grid grid-cols-2 gap-3">
             <button className="h-12 rounded-md border border-slate-300 font-semibold text-slate-700" type="button" onClick={onClose}>
               Cancelar
@@ -3669,6 +3661,7 @@ function CardForm({
     const primaryCurrency = currencies.includes(form.primaryCurrency) ? form.primaryCurrency : currencies[0];
 
     const nextCard: CreditCardAccount = {
+      ...card,
       id: card?.id ?? createLocalId(),
       bank: form.bank.trim(),
       alias: form.alias.trim(),
@@ -3916,9 +3909,9 @@ function installmentToForm(plan: InstallmentPlan): InstallmentFormState {
     description: plan.description,
     totalAmount: String(plan.totalAmount),
     monthlyPayment: String(plan.monthlyPayment),
-    totalInstallments: String(plan.totalInstallments),
+    totalInstallments: String(Math.max(plan.totalInstallments - plan.paidInstallments, 0)),
     paidInstallments: String(plan.paidInstallments),
-    startDate: plan.startDate
+    startDate: plan.startDate ?? ''
   };
 }
 
@@ -3984,6 +3977,8 @@ function mergeCreditCards(targetCard: CreditCardAccount, sourceCard: CreditCardA
   return {
     ...targetCard,
     active: targetCard.active || sourceCard.active,
+    notes: [targetCard.notes, sourceCard.notes].filter(Boolean).join('\n\n'),
+    avoidNewInstallments: targetCard.avoidNewInstallments || sourceCard.avoidNewInstallments,
     currencies,
     primaryCurrency: currencies.includes(targetCard.primaryCurrency) ? targetCard.primaryCurrency : currencies[0],
     creditLimits: {
