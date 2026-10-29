@@ -1376,13 +1376,18 @@ function CardsView({
           <option value="payment-due">Pago mas proximo</option>
         </select>
       </label>
-      <p className="mb-3 text-xs text-slate-500">El contador de cada ficha indica los dias para pagar el saldo actual.</p>
+      <p className="mb-3 text-xs text-slate-500">
+        {sortOrder === 'estimated-payment'
+          ? 'Cada ficha destaca el pago estimado de nuevas compras. El pago del saldo actual aparece por separado.'
+          : 'Cada ficha destaca el vencimiento del saldo actual. El plazo de nuevas compras aparece por separado.'}
+      </p>
 
       <div className="space-y-3">
         {sortedCards.map((card) => (
           <PriorityCard
             key={card.id}
             card={card}
+            sortOrder={sortOrder}
             onDeactivate={onDeactivate}
             onEdit={onEdit}
             onRegisterPayment={onRegisterPayment}
@@ -1397,6 +1402,7 @@ function CardsView({
 
 function PriorityCard({
   card,
+  sortOrder,
   onDeactivate,
   onEdit,
   onRegisterPayment,
@@ -1404,6 +1410,7 @@ function PriorityCard({
   onUpdateBalance
 }: {
   card: CardPriority;
+  sortOrder: CardSortOrder;
   onDeactivate: (cardId: string) => void;
   onEdit: (card: CreditCardAccount) => void;
   onRegisterPayment: (cardId: string) => void;
@@ -1456,18 +1463,24 @@ function PriorityCard({
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-[1fr_auto] items-end gap-3">
+      <div className="mt-4">
         <div className="grid grid-cols-2 gap-2 text-sm">
           <DatePill label="Ultimo corte" value={formatShortDate(card.lastCutDate)} />
           <DatePill label="Hace" value={formatElapsedDays(card.daysSinceLastCut)} />
           <DatePill label="Proximo corte" value={formatShortDate(card.nextCutDate)} />
-          <DatePill label="Pagar antes" value={formatShortDate(getCardPaymentDueDate(card))} />
+          <DatePill label="Gracia configurada" value={`${card.graceDays} ${card.graceDays === 1 ? 'dia' : 'dias'}`} />
         </div>
-        <div className="text-right">
-          <p className="text-3xl font-bold text-slate-950">{Math.abs(card.daysUntilPayment)}</p>
-          <p className="text-xs font-semibold uppercase text-slate-500">
-            {card.daysUntilPayment < 0 ? 'dias vencido' : card.daysUntilPayment === 0 ? 'vence hoy' : 'dias para pagar'}
-          </p>
+        <div className="mt-3 space-y-2">
+          {(sortOrder === 'estimated-payment' ? ['estimated', 'actual'] : ['actual', 'estimated']).map((cycle) => (
+            <CardPaymentWindow
+              key={cycle}
+              title={cycle === 'estimated' ? 'Nuevas compras · pago estimado' : 'Saldo actual · pagar antes del'}
+              date={cycle === 'estimated' ? card.nextPaymentDate : card.paymentDeadline}
+              days={cycle === 'estimated' ? card.availableDays : card.daysUntilPayment}
+              estimated={cycle === 'estimated'}
+              highlighted={(cycle === 'estimated') === (sortOrder === 'estimated-payment')}
+            />
+          ))}
         </div>
       </div>
 
@@ -1769,6 +1782,30 @@ function CardDetailPanel({
             Desactivar
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function CardPaymentWindow({ title, date, days, estimated, highlighted }: {
+  title: string;
+  date: Date;
+  days: number;
+  estimated: boolean;
+  highlighted: boolean;
+}) {
+  const unit = Math.abs(days) === 1 ? 'dia' : 'dias';
+  const counterLabel = estimated ? `${unit} hasta el pago estimado`
+    : days < 0 ? `${unit} de atraso` : days === 0 ? 'vence hoy' : `${unit} para pagar`;
+  return (
+    <div className={`flex items-center justify-between gap-3 rounded-md border px-3 py-2 ${highlighted ? 'border-teal-200 bg-teal-50' : 'border-slate-200 bg-slate-50'}`}>
+      <div className="min-w-0">
+        <p className="text-xs font-medium text-slate-600">{title}</p>
+        <p className="mt-1 font-semibold text-slate-950">{formatShortDate(date)}</p>
+      </div>
+      <div className="w-28 shrink-0 text-right">
+        <p className={`${highlighted ? 'text-3xl' : 'text-xl'} font-bold text-slate-950`}>{Math.abs(days)}</p>
+        <p className="text-xs font-semibold text-slate-600">{counterLabel}</p>
       </div>
     </div>
   );

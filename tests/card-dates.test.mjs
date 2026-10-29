@@ -25,6 +25,16 @@ test('the screenshot cards share 11 days to payment despite different grace peri
   assert.equal(cashback.daysSinceLastCut, 13);
 });
 
+test('BI screenshot dates belong to separate cycles: 21 days to November, 51 to December', () => {
+  const bi = buildCardPriority(card({ cutDay: 25, graceDays: 24, paymentDueDate: '2026-11-19' }), today);
+  assert.equal(bi.daysUntilPayment, 21);
+  assert.equal(bi.paymentDeadline.getMonth(), 10);
+  assert.equal(bi.paymentDeadline.getDate(), 19);
+  assert.equal(bi.availableDays, 51);
+  assert.equal(bi.nextPaymentDate.getMonth(), 11);
+  assert.equal(bi.nextPaymentDate.getDate(), 19);
+});
+
 test('default order prioritizes the longest estimated payment term for new purchases', () => {
   const ranking = buildPriorityRanking([
     card({ id: 'nov', alias: 'Noviembre', cutDay: 16, graceDays: 60 }),
