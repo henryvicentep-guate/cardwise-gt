@@ -22,6 +22,8 @@ import { buildPriorityRanking, getCardPaymentDueDate, getLastCutDate, getNextCut
 import type { CardSortOrder } from '../features/cards/priority';
 import type { CardPriority, CreditCardAccount, Currency } from '../features/cards/types';
 import type { CardExpense, ExpenseCategory, ExpensePayment } from '../features/expenses/types';
+import { createCardExpense } from '../features/expenses/consumption';
+import { CardConsumption } from '../features/expenses/CardConsumption';
 import type { InstallmentPlan } from '../features/installments/types';
 import { applyAutomaticInstallmentProgress, isInstallmentActive, summarizeInstallments } from '../features/installments/progress';
 import { CardCommitmentsModal } from '../features/installments/CardCommitmentsModal';
@@ -223,6 +225,7 @@ function App() {
   const [payablePayments, setPayablePayments] = useState<PayableAccountPayment[]>(localPayablePaymentsStorage.load);
   const [balanceFormOpen, setBalanceFormOpen] = useState(false);
   const [expenseFormOpen, setExpenseFormOpen] = useState(false);
+  const [expenseCardId, setExpenseCardId] = useState<string | null>(null);
   const [expensePaymentFormOpen, setExpensePaymentFormOpen] = useState(false);
   const [expenseCategoryFormOpen, setExpenseCategoryFormOpen] = useState(false);
   const [payableFormOpen, setPayableFormOpen] = useState(false);
@@ -811,6 +814,8 @@ function App() {
         {activeTab === 'cards' ? (
           <CardsView
             cards={priorityCards}
+            expenses={expenses}
+            onRegisterExpense={(cardId) => { setExpenseCardId(cardId); setExpenseFormOpen(true); }}
             installments={installments}
             reviewedCommitments={reviewedCommitments}
             onOpenCommitments={(cardId) => {
@@ -850,7 +855,7 @@ function App() {
             expensePayments={expensePayments}
             expenses={expenses}
             onCreateCategory={() => setExpenseCategoryFormOpen(true)}
-            onRegisterExpense={() => setExpenseFormOpen(true)}
+            onRegisterExpense={() => { setExpenseCardId(null); setExpenseFormOpen(true); }}
             onRegisterExpensePayment={() => setExpensePaymentFormOpen(true)}
           />
         ) : null}
@@ -922,7 +927,7 @@ function App() {
 
       {expenseFormOpen ? (
         <ExpenseForm
-          cards={priorityCards}
+          cards={expenseCardId ? priorityCards.filter((card) => card.id === expenseCardId) : priorityCards}
           categories={expenseCategories.filter((category) => category.active)}
           onClose={() => setExpenseFormOpen(false)}
           onSave={handleSaveExpense}
@@ -1299,6 +1304,8 @@ function PasswordRecoveryForm({ onSave }: { onSave: (password: string) => Promis
 function CardsView({
   cards,
   installments,
+  expenses,
+  onRegisterExpense,
   reviewedCommitments,
   onOpenCommitments,
   onDeactivate,
@@ -1309,6 +1316,8 @@ function CardsView({
 }: {
   cards: CardPriority[];
   installments: InstallmentPlan[];
+  expenses: CardExpense[];
+  onRegisterExpense: (cardId: string) => void;
   reviewedCommitments: string[];
   onOpenCommitments: (cardId: string) => void;
   onDeactivate: (cardId: string) => void;
@@ -1358,6 +1367,8 @@ function CardsView({
           <PriorityCard
             key={card.id}
             card={card}
+            expenses={expenses.filter((expense) => expense.cardId === card.id)}
+            onRegisterExpense={onRegisterExpense}
             installments={installments.filter((plan) => plan.cardId === card.id)}
             reviewed={reviewedCommitments.includes(card.id)}
             onOpenCommitments={onOpenCommitments}
@@ -1377,6 +1388,8 @@ function CardsView({
 function PriorityCard({
   card,
   installments,
+  expenses,
+  onRegisterExpense,
   reviewed,
   onOpenCommitments,
   sortOrder,
@@ -1388,6 +1401,8 @@ function PriorityCard({
 }: {
   card: CardPriority;
   installments: InstallmentPlan[];
+  expenses: CardExpense[];
+  onRegisterExpense: (cardId: string) => void;
   reviewed: boolean;
   onOpenCommitments: (cardId: string) => void;
   sortOrder: CardSortOrder;
@@ -1413,8 +1428,8 @@ function PriorityCard({
         }
       }}
     >
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
+        <div className="flex min-w-0 flex-col">
           <div className="flex items-center gap-2">
             <span className="size-3 rounded-full" style={{ backgroundColor: card.colorHex }} />
             <h3 className="truncate text-base font-semibold">{card.alias}</h3>
@@ -1426,13 +1441,13 @@ function PriorityCard({
             {formatCardBalances(card)} pendiente
           </p>
           {card.benefitsDescription ? (
-            <p className="mt-2 line-clamp-2 rounded-md bg-teal-50 px-3 py-2 text-sm font-medium text-teal-900">
+            <p className="mt-2 flex-1 whitespace-pre-wrap break-words rounded-md bg-teal-50 px-3 py-2 text-sm font-medium text-teal-900">
               {card.benefitsDescription}
             </p>
           ) : null}
         </div>
-        <div className="flex shrink-0 flex-col items-end gap-2">
-          <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-col items-end gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             <PaymentDueBadge days={card.daysUntilPayment} />
           <button
             className="grid size-8 place-items-center rounded-md bg-slate-100 text-slate-700"
@@ -1446,7 +1461,7 @@ function PriorityCard({
           </button>
           </div>
           <button
-            className={`max-w-[160px] rounded-lg px-3 py-2 text-right text-xs font-semibold ${warning ? 'bg-red-700 text-white ring-2 ring-red-200' : 'bg-teal-50 text-teal-950 ring-1 ring-teal-200'} ${warning && !reviewed ? 'commitment-attention' : ''}`}
+            className={`w-full break-words rounded-lg px-3 py-2 text-right text-xs font-semibold ${warning ? 'bg-red-700 text-white ring-2 ring-red-200' : 'bg-teal-50 text-teal-950 ring-1 ring-teal-200'} ${warning && !reviewed ? 'commitment-attention' : ''}`}
             aria-label={`Notas y cuotas de ${card.alias}${warning ? ': evitar nuevas cuotas' : ''}`}
             onClick={(event) => { event.stopPropagation(); onOpenCommitments(card.id); }}
           >
@@ -1478,6 +1493,8 @@ function PriorityCard({
           ))}
         </div>
       </div>
+
+      <CardConsumption card={card} expenses={expenses} onRegister={onRegisterExpense} />
 
       <div className="mt-4 grid grid-cols-[1fr_1fr_auto] items-center gap-2">
         <button
@@ -1974,6 +1991,7 @@ function ExpensesView({
   onRegisterExpensePayment: () => void;
 }) {
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
+  const [movementPage, setMovementPage] = useState({ key: '', limit: 10 });
   const [selectedCategoryId, setSelectedCategoryId] = useState('all');
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ExpenseViewMode>('cycle');
@@ -1989,6 +2007,9 @@ function ExpensesView({
   const visibleExpensePayments = expensePayments
     .filter((payment) => activeCardIds.includes(payment.cardId))
     .filter((payment) => (viewMode === 'cycle' ? payment.cycleCutDate === effectiveCycleCutDate : isSameMonthValue(payment.date, monthValue)));
+  const movementKey = JSON.stringify([selectedCardIds, selectedCategoryId, viewMode, effectiveCycleCutDate, monthValue]);
+  const movementLimit = movementPage.key === movementKey ? movementPage.limit : 10;
+  const sortedExpenses = [...visibleExpenses].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
   const totalByCurrency = summarizeExpenses(visibleExpenses);
   const paidByCurrency = summarizeExpensePayments(visibleExpensePayments);
   const pendingByCurrency = {
@@ -2129,12 +2150,13 @@ function ExpensesView({
         </div>
         <div className="mt-3 space-y-3">
           {visibleExpenses.length > 0 ? (
-            visibleExpenses.map((expense) => <ExpenseItem key={expense.id} categories={categories} expense={expense} />)
+            sortedExpenses.slice(0, movementLimit).map((expense) => <ExpenseItem key={expense.id} categories={categories} expense={expense} />)
           ) : (
             <div className="rounded-lg border border-dashed border-slate-300 bg-white p-5 text-center text-sm text-slate-500">
               Registra un consumo y selecciona tarjeta, categoria y fecha.
             </div>
           )}
+          {visibleExpenses.length > movementLimit ? <button className="min-h-11 w-full rounded-md bg-white text-sm font-semibold text-teal-800" onClick={() => setMovementPage({ key: movementKey, limit: movementLimit + 10 })}>Ver más movimientos</button> : null}
         </div>
       </section>
     </section>
@@ -2637,8 +2659,8 @@ function ExpenseForm({
     date: getDateInputValue(new Date()),
     description: ''
   }));
+  const [error, setError] = useState('');
   const selectedCard = cards.find((card) => card.id === form.cardId);
-  const selectedCategory = categories.find((category) => category.id === form.categoryId);
   const cycleCutDate = selectedCard ? getDateInputValue(getNextCutDate(parseDateInput(form.date), selectedCard.cutDay)) : form.date;
 
   function updateField<Key extends keyof ExpenseFormState>(key: Key, value: ExpenseFormState[Key]) {
@@ -2647,21 +2669,19 @@ function ExpenseForm({
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedCard || !selectedCategory) return;
-
-    onSave({
-      id: createLocalId(),
-      amount: parseAmount(form.amount),
-      cardAlias: selectedCard.alias,
-      cardId: selectedCard.id,
-      categoryId: selectedCategory.id,
-      categoryName: selectedCategory.name,
-      createdAt: new Date().toISOString(),
-      currency: form.currency,
-      cycleCutDate,
-      date: form.date,
-      description: form.description.trim()
-    });
+    try {
+      const expense = createCardExpense({
+        cardId: form.cardId,
+        categoryId: form.categoryId,
+        currency: form.currency,
+        amount: parseAmount(form.amount),
+        date: form.date,
+        description: form.description
+      }, cards, categories, createLocalId());
+      onSave(expense);
+    } catch (error) {
+      setError(getErrorMessage(error));
+    }
   }
 
   return (
@@ -2676,6 +2696,7 @@ function ExpenseForm({
 
         <form className="overflow-y-auto px-4 py-4" onSubmit={handleSubmit}>
           <div className="grid gap-3">
+            {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
             <TextField label="Descripcion" value={form.description} onChange={(value) => updateField('description', value)} required />
             <label className="grid gap-1 text-sm font-medium text-slate-700">
               Tarjeta

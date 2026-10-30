@@ -5,6 +5,7 @@ import type { InstallmentPlan } from '../../features/installments/types';
 import type { PayableAccount, PayableAccountPayment } from '../../features/payables/types';
 import type { PaymentRecord } from '../../features/payments/types';
 import { supabase } from '../supabase/client';
+import { localExpenseCategoriesStorage, localExpensePaymentsStorage, localExpensesStorage } from './localStorage';
 
 type CardWiseTable =
   | 'cardwise_cards'
@@ -95,9 +96,9 @@ export async function loadCloudData(): Promise<CardWiseCloudData> {
     loadCloudCollection<BalanceSnapshot>('cardwise_balance_snapshots'),
     loadCloudCollection<PayableAccount>('cardwise_payables'),
     loadCloudCollection<PayableAccountPayment>('cardwise_payable_payments'),
-    loadOptionalCloudCollection<ExpenseCategory>('cardwise_expense_categories'),
-    loadOptionalCloudCollection<CardExpense>('cardwise_expenses'),
-    loadOptionalCloudCollection<ExpensePayment>('cardwise_expense_payments')
+    loadOptionalCloudCollection<ExpenseCategory>('cardwise_expense_categories', localExpenseCategoriesStorage.load()),
+    loadOptionalCloudCollection<CardExpense>('cardwise_expenses', localExpensesStorage.load()),
+    loadOptionalCloudCollection<ExpensePayment>('cardwise_expense_payments', localExpensePaymentsStorage.load())
   ]);
 
   return { balanceSnapshots, cards, expenseCategories, expensePayments, expenses, installments, payablePayments, payables, payments };
@@ -126,11 +127,11 @@ async function loadCloudCollection<T>(table: CardWiseTable): Promise<T[]> {
   return (data as Array<Pick<CloudRecord<T>, 'payload'>> | null)?.map((record) => record.payload) ?? [];
 }
 
-async function loadOptionalCloudCollection<T>(table: CardWiseTable): Promise<T[]> {
+async function loadOptionalCloudCollection<T>(table: CardWiseTable, localFallback: T[]): Promise<T[]> {
   try {
     return await loadCloudCollection<T>(table);
   } catch (error) {
-    if (isMissingCloudTableError(error)) return [];
+    if (isMissingCloudTableError(error)) return localFallback;
     throw error;
   }
 }
@@ -172,7 +173,10 @@ async function replaceOptionalCloudCollection<T extends { id: string }>(table: C
   try {
     await replaceCloudCollection(table, items);
   } catch (error) {
-    if (isMissingCloudTableError(error)) return;
+    if (isMissingCloudTableError(error)) {
+      if (items.length === 0) return;
+      throw new Error('Los consumos siguen guardados en este dispositivo. Falta actualizar las tablas de consumos en Supabase para sincronizarlos.');
+    }
     throw error;
   }
 }
@@ -181,7 +185,7 @@ function isMissingCloudTableError(error: unknown): boolean {
   if (!(error instanceof Error) && (typeof error !== 'object' || error === null)) return false;
 
   const cloudError = error as { code?: string; message?: string };
-  return cloudError.code === '42P01' || cloudError.message?.includes('does not exist') === true;
+  return cloudError.code === '42P01' || cloudError.code === 'PGRST205' || cloudError.message?.includes('does not exist') === true;
 }
 
 function isMissingAuthSessionError(error: unknown): boolean {

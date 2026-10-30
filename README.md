@@ -24,6 +24,8 @@ Base inicial del proyecto creada con:
 - Abonos, snapshots y extrafinanciamientos registran moneda para no mezclar GTQ/USD
 - Detalle por tarjeta con estado de cuenta local e historial filtrado
 - Extrafinanciamientos locales informativos por tarjeta con avance automatico por corte, edicion, cierre, progreso, monto pendiente y cuota mensual esperada
+- Consumos desde la ficha de cada tarjeta, totales del próximo corte y del mes en GTQ/USD, y movimientos de 10 en 10
+- Validación común de consumos preparada para futuros adaptadores de chat; contrato y reglas en `docs/consumos.md`
 
 ## Persistencia local
 
@@ -33,6 +35,9 @@ Base inicial del proyecto creada con:
 - `cardwise.balanceSnapshots.v1`
 - `cardwise.payables.v1`
 - `cardwise.payablePayments.v1`
+- `cardwise.expenses.v1`
+- `cardwise.expenseCategories.v1`
+- `cardwise.expensePayments.v1`
 
 ## Comandos
 
